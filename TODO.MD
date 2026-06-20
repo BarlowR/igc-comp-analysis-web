@@ -13,3 +13,5 @@
 - [ ] Add single pilot selection highlight
 
 - [ ] Add altitude plot to map and add time slider
+
+- [ ] Show optimized task line, not cylinder connections 
