@@ -1,0 +1,48 @@
+---
+// Archived analysis viewer: re-runs the in-browser analysis on the stored
+// task + IGC files. One static route per manifest entry.
+import Base from '../../../layouts/Base.astro';
+import manifest from '../../../archive-manifest.json';
+
+interface Entry {
+  comp: string;
+  compLabel?: string;
+  day: string;
+  dayLabel?: string;
+  date?: string;
+  title?: string;
+  notes?: string;
+  taskFile: string;
+  igcFiles: string[];
+}
+
+export function getStaticPaths() {
+  const entries = manifest as unknown as Entry[];
+  return entries.map((entry) => ({ params: { comp: entry.comp, day: entry.day }, props: { entry } }));
+}
+
+const { entry } = Astro.props as { entry: Entry };
+const base = `/archive/${entry.comp}/${entry.day}`;
+const clientEntry = { base, taskFile: entry.taskFile, igcFiles: entry.igcFiles };
+const heading = entry.title ?? `${entry.compLabel ?? entry.comp} — ${entry.dayLabel ?? entry.day}`;
+---
+
+<Base title={`${heading} — Archive`}>
+  <header class="hero">
+    <h1>{heading}</h1>
+  </header>
+
+  <main>
+    <section class="card">
+      {entry.notes && <p>{entry.notes}</p>}
+      <span id="status" class="status">Loading…</span>
+    </section>
+
+    <div id="results" class="results"></div>
+  </main>
+
+  <script type="application/json" id="archive-entry" set:html={JSON.stringify(clientEntry)} />
+  <script>
+    import '../../../scripts/archive.ts';
+  </script>
+</Base>

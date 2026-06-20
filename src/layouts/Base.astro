@@ -1,0 +1,45 @@
+---
+// Shared page shell: head, fonts, global styles, top nav, and footer.
+import '../styles/global.css';
+
+interface Props {
+  title?: string;
+  description?: string;
+}
+
+const {
+  title = 'Comp Tracklog Analysis',
+  description = 'Analyze and archive paragliding competition flights in your browser.',
+} = Astro.props;
+
+const path = Astro.url.pathname;
+const isArchive = path.startsWith('/archive');
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Roboto:wght@100;200;300;400;500&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <nav class="topnav">
+      <a href="/" class:list={[{ active: !isArchive }]}>Analyze</a>
+      <a href="/archive" class:list={[{ active: isArchive }]}>Archive</a>
+    </nav>
+
+    <slot />
+
+    <footer>
+      <p>Ported from the <code>comp_analysis</code> Python tooling.</p>
+    </footer>
+  </body>
+</html>

@@ -1,0 +1,63 @@
+---
+// Archive index: lists every archived comp/day from the build-time manifest.
+import Base from '../../layouts/Base.astro';
+import manifest from '../../archive-manifest.json';
+
+interface Entry {
+  comp: string;
+  compLabel?: string;
+  day: string;
+  dayLabel?: string;
+  date?: string;
+  title?: string;
+  notes?: string;
+  taskFile: string;
+  igcFiles: string[];
+}
+
+const entries = manifest as unknown as Entry[];
+
+// Group by competition, preserving manifest order within each.
+const byComp = new Map<string, { label: string; days: Entry[] }>();
+for (const e of entries) {
+  if (!byComp.has(e.comp)) byComp.set(e.comp, { label: e.compLabel ?? e.comp, days: [] });
+  byComp.get(e.comp)!.days.push(e);
+}
+const comps = [...byComp.entries()];
+---
+
+<Base title="Archive — Comp Tracklog Analysis">
+  <header class="hero">
+    <h1>Archive</h1>
+  </header>
+
+  <main>
+    {
+      comps.length === 0 ? (
+        <section class="card">
+          <p class="archive-empty">
+            No archived analyses yet. Add one with <code>npm run archive</code>.
+          </p>
+        </section>
+      ) : (
+        comps.map(([comp, { label, days }]) => (
+          <section class="card archive-comp">
+            <h2>{label}</h2>
+            <ul class="day-list">
+              {days.map((d) => (
+                <li>
+                  <a class="day-link" href={`/archive/${comp}/${d.day}`}>
+                    <div class="day-title">{d.dayLabel ?? d.day}</div>
+                    <div class="day-meta">
+                      {[d.date, `${d.igcFiles.length} tracks`].filter(Boolean).join(' · ')}
+                    </div>
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ))
+      )
+    }
+  </main>
+</Base>
