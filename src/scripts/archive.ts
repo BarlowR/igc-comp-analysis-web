@@ -28,7 +28,7 @@ async function load(): Promise<void> {
     statusEl.textContent = 'Loading task…';
     const taskText = await fetchText(`${entry.base}/${entry.taskFile}`);
 
-    statusEl.textContent = 'Loading tracklogs…';
+    statusEl.textContent = 'Loading tracklogs… (This may take a while, please be patient)';
     const igc = await Promise.all(
       entry.igcFiles.map(async (name) => ({ name, text: await fetchText(`${entry.base}/${name}`) })),
     );
