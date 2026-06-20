@@ -1,0 +1,91 @@
+{
+  "taskType": "CLASSIC",
+  "version": 1,
+  "earthModel": "WGS84",
+  "turnpoints": [
+    {
+      "radius": 400,
+      "waypoint": {
+        "name": "LAUNCH",
+        "description": "LAUNCH",
+        "lat": 47.80415,
+        "lon": -120.038617,
+        "altSmoothed": 1127
+      },
+      "type": "TAKEOFF"
+    },
+    {
+      "radius": 4000,
+      "waypoint": {
+        "name": "LAUNCH",
+        "description": "LAUNCH",
+        "lat": 47.80415,
+        "lon": -120.038617,
+        "altSmoothed": 1127
+      },
+      "type": "SSS"
+    },
+    {
+      "radius": 3000,
+      "waypoint": {
+        "name": "WATERV",
+        "description": "WATERV",
+        "lat": 47.655733,
+        "lon": -120.059567,
+        "altSmoothed": 804
+      }
+    },
+    {
+      "radius": 46000,
+      "waypoint": {
+        "name": "GR803",
+        "description": "GR803",
+        "lat": 47.150153,
+        "lon": -119.858558,
+        "altSmoothed": 381
+      }
+    },
+    {
+      "radius": 4000,
+      "waypoint": {
+        "name": "CASHME",
+        "description": "CASHME",
+        "lat": 47.5138,
+        "lon": -120.476633,
+        "altSmoothed": 255
+      }
+    },
+    {
+      "radius": 2000,
+      "waypoint": {
+        "name": "LVNWLZ",
+        "description": "LVNWLZ",
+        "lat": 47.601569,
+        "lon": -120.670158,
+        "altSmoothed": 372
+      },
+      "type": "ESS"
+    },
+    {
+      "radius": 100,
+      "waypoint": {
+        "name": "LVNWLZ",
+        "description": "LVNWLZ",
+        "lat": 47.601569,
+        "lon": -120.670158,
+        "altSmoothed": 372
+      }
+    }
+  ],
+  "sss": {
+    "type": "RACE",
+    "direction": "ENTER",
+    "timeGates": [
+      "20:30:00Z"
+    ]
+  },
+  "goal": {
+    "type": "CYLINDER",
+    "deadline": "00:00:00Z"
+  }
+}

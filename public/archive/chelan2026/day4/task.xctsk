@@ -1,0 +1,111 @@
+{
+  "taskType": "CLASSIC",
+  "version": 1,
+  "earthModel": "WGS84",
+  "turnpoints": [
+    {
+      "radius": 400,
+      "waypoint": {
+        "name": "LAUNCH",
+        "description": "",
+        "lat": 47.80415,
+        "lon": -120.038617,
+        "altSmoothed": 1127
+      },
+      "type": "TAKEOFF"
+    },
+    {
+      "radius": 4000,
+      "waypoint": {
+        "name": "LAUNCH",
+        "description": "",
+        "lat": 47.80415,
+        "lon": -120.038617,
+        "altSmoothed": 1127
+      },
+      "type": "SSS"
+    },
+    {
+      "radius": 10000,
+      "waypoint": {
+        "name": "MANSFL",
+        "description": "",
+        "lat": 47.817683,
+        "lon": -119.643417,
+        "altSmoothed": 693
+      }
+    },
+    {
+      "radius": 7000,
+      "waypoint": {
+        "name": "FARMER",
+        "description": "",
+        "lat": 47.612383,
+        "lon": -119.813267,
+        "altSmoothed": 736
+      }
+    },
+    {
+      "radius": 4000,
+      "waypoint": {
+        "name": "WATERV",
+        "description": "",
+        "lat": 47.655733,
+        "lon": -120.059567,
+        "altSmoothed": 805
+      }
+    },
+    {
+      "radius": 6000,
+      "waypoint": {
+        "name": "8NWFNW",
+        "description": "",
+        "lat": 47.728683,
+        "lon": -119.877817,
+        "altSmoothed": 821
+      }
+    },
+    {
+      "radius": 7000,
+      "waypoint": {
+        "name": "WATERV",
+        "description": "",
+        "lat": 47.655733,
+        "lon": -120.059567,
+        "altSmoothed": 805
+      }
+    },
+    {
+      "radius": 2000,
+      "waypoint": {
+        "name": "SOCCER",
+        "description": "",
+        "lat": 47.798667,
+        "lon": -119.985033,
+        "altSmoothed": 221
+      },
+      "type": "ESS"
+    },
+    {
+      "radius": 50,
+      "waypoint": {
+        "name": "SOCCER",
+        "description": "SOCCER",
+        "lat": 47.798667,
+        "lon": -119.985033,
+        "altSmoothed": 221
+      }
+    }
+  ],
+  "sss": {
+    "type": "RACE",
+    "direction": "ENTER",
+    "timeGates": [
+      "20:15:00Z"
+    ]
+  },
+  "goal": {
+    "type": "CYLINDER",
+    "deadline": "00:15:00Z"
+  }
+}
