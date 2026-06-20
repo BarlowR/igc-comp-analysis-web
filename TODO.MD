@@ -4,7 +4,9 @@
 - [ ] Improve mobile display
     - [ ] Make hover labels for map lines easier to trigger on mobile and desktop (line thickness?)
 
-- [ ] Make line colors (map and thermal plot) easier to map to pilot
+- [ ] Make line colors (map and thermal plot) easier to map to pilot. 
+
+- [ ] Use the same color for a pilot for both thermal chart and map
 
 - [ ] show deselected pilots in the background on both plots as grey lines
 
