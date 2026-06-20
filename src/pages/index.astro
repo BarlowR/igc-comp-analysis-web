@@ -7,7 +7,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Competition Flight Analysis</title>
+    <title>Comp Tracklog Analysis</title>
     <meta
       name="description"
       content="Upload a task and IGC tracklogs to analyze paragliding competition flights in your browser."
@@ -21,11 +21,7 @@
   </head>
   <body>
     <header class="hero">
-      <h1>Competition Flight Analysis</h1>
-      <p>
-        Upload an XContest task file and your pilots' IGC tracklogs. Everything is
-        analyzed locally in your browser — nothing is uploaded to a server.
-      </p>
+      <h1> Paragliding Comp Tracklog Analysis</h1>
     </header>
 
     <main>
@@ -293,11 +289,25 @@
       }
 
       table.stats tbody tr.unselected {
-        opacity: 0.4;
+        opacity: 0.5;
       }
 
       table.stats tbody tr.unselected:hover {
-        opacity: 0.7;
+        opacity: 0.8;
+      }
+
+      /* Collapsible header row for the deselected-pilots section. */
+      table.stats tbody tr.deselected-toggle td {
+        cursor: pointer;
+        text-align: left;
+        font-weight: 700;
+        color: var(--muted);
+        background: var(--panel-2);
+        user-select: none;
+      }
+
+      table.stats tbody tr.deselected-toggle td:hover {
+        color: var(--accent);
       }
 
       table.stats td:not(.name) {
@@ -316,7 +326,7 @@
 
       .chart-holder {
         position: relative;
-        height: 520px;
+        height: 440px;
       }
 
       .map-holder {
@@ -324,40 +334,6 @@
         border-radius: 10px;
         overflow: hidden;
         border: 1px solid var(--border-strong);
-      }
-
-      .map-legend {
-        background: rgba(245, 239, 225, 0.94);
-        color: var(--text);
-        border: 1px solid var(--border-strong);
-        border-radius: 8px;
-        padding: 0.5rem 0.6rem;
-        font-size: 0.8rem;
-        max-height: 320px;
-        overflow-y: auto;
-        box-shadow: 0 2px 8px rgba(20, 12, 12, 0.15);
-      }
-
-      .map-legend-row {
-        display: flex;
-        align-items: center;
-        gap: 0.45rem;
-        padding: 0.12rem 0;
-        cursor: pointer;
-        white-space: nowrap;
-      }
-
-      .map-legend-row.off {
-        opacity: 0.4;
-        text-decoration: line-through;
-      }
-
-      .map-legend-swatch {
-        display: inline-block;
-        width: 14px;
-        height: 4px;
-        border-radius: 2px;
-        flex: 0 0 auto;
       }
 
       footer {

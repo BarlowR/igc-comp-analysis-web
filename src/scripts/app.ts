@@ -11,6 +11,7 @@ import {
   Tooltip,
   Legend,
   type ChartDataset,
+  type Plugin,
 } from 'chart.js';
 import * as L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -118,8 +119,8 @@ interface Selection {
   subscribe(fn: () => void): void;
 }
 
-function makeSelection(allNames: string[]): Selection {
-  const selected = new Set(allNames);
+function makeSelection(allNames: string[], initial: string[]): Selection {
+  const selected = new Set(initial);
   const subs: (() => void)[] = [];
   const notify = (): void => {
     for (const f of subs) f();
@@ -164,18 +165,35 @@ function render(table: StatsTable, climb: ClimbData, mapData: MapData): void {
   results.innerHTML = '';
 
   // One selection shared across the map, both tables, and both charts.
-  const names = new Set<string>();
-  for (const r of table.completed) names.add(r[0].text);
-  for (const r of table.incomplete) names.add(r[0].text);
-  for (const tr of mapData.tracks) names.add(tr.pilot);
-  const sel = makeSelection([...names]);
+  // Pilots are ordered completed-first (completed rows are sorted by completion
+  // time), so the first 20 are the leaderboard's top 20, selected by default.
+  const ordered: string[] = [];
+  const seen = new Set<string>();
+  const push = (n: string): void => {
+    if (!seen.has(n)) {
+      seen.add(n);
+      ordered.push(n);
+    }
+  };
+  for (const r of table.completed) push(r[0].text);
+  for (const r of table.incomplete) push(r[0].text);
+  for (const tr of mapData.tracks) push(tr.pilot);
 
-  if (mapData.turnpoints.length || mapData.tracks.length) {
-    results.appendChild(mapSection(mapData, sel));
+  // With a large field, default to just the top 20 to keep the page manageable;
+  // otherwise select everyone.
+  const TOP_N = 20;
+  const TRUNCATE_ABOVE = 50;
+  const truncated = ordered.length > TRUNCATE_ABOVE;
+  const sel = makeSelection(ordered, truncated ? ordered.slice(0, TOP_N) : ordered);
+  if (truncated) {
+    statusEl.textContent += `  Showing the top ${TOP_N} of ${ordered.length} pilots by default — use the “deselected pilots” section or the checkboxes to show more.`;
   }
 
   if (table.completed.length || climb.completed.length) {
     results.appendChild(group('Completed Task', table, table.completed, true, climb.completed, sel));
+  }
+  if (mapData.turnpoints.length || mapData.tracks.length) {
+    results.appendChild(mapSection(mapData, sel));
   }
   if (table.incomplete.length || climb.incomplete.length) {
     results.appendChild(group('Did Not Complete Task', table, table.incomplete, false, climb.incomplete, sel));
@@ -203,7 +221,6 @@ interface TrackLayer {
   name: string;
   color: string;
   layer: L.Polyline;
-  row?: HTMLElement;
 }
 
 function initMap(holder: HTMLElement, data: MapData, sel: Selection): void {
@@ -251,41 +268,16 @@ function initMap(holder: HTMLElement, data: MapData, sel: Selection): void {
   if (bounds.isValid()) m.fitBounds(bounds, { padding: [30, 30] });
   m.invalidateSize();
 
-  if (trackLayers.length) addMapLegend(m, trackLayers, sel);
-
-  // Keep the map in sync when selection changes from the table or charts.
+  // Keep the map in sync when selection changes from the table. Pilot names are
+  // not listed on the map (selection is driven by the table); hover a track to
+  // see its pilot.
   sel.subscribe(() => {
     for (const t of trackLayers) {
       const on = sel.has(t.name);
       if (on && !m.hasLayer(t.layer)) t.layer.addTo(m);
       else if (!on && m.hasLayer(t.layer)) m.removeLayer(t.layer);
-      t.row?.classList.toggle('off', !on);
     }
   });
-}
-
-/** A clickable legend control: toggle each pilot's track via the shared selection. */
-function addMapLegend(m: L.Map, tracks: TrackLayer[], sel: Selection): void {
-  const Legend = L.Control.extend({
-    options: { position: 'topright' as L.ControlPosition },
-    onAdd(): HTMLElement {
-      const div = L.DomUtil.create('div', 'map-legend');
-      L.DomEvent.disableClickPropagation(div);
-      L.DomEvent.disableScrollPropagation(div);
-      for (const t of tracks) {
-        const row = L.DomUtil.create('div', 'map-legend-row', div);
-        t.row = row;
-        row.classList.toggle('off', !sel.has(t.name));
-        const sw = L.DomUtil.create('span', 'map-legend-swatch', row);
-        sw.style.background = t.color;
-        const label = L.DomUtil.create('span', '', row);
-        label.textContent = t.name;
-        L.DomEvent.on(row, 'click', () => sel.toggle(t.name));
-      }
-      return div;
-    },
-  });
-  new Legend().addTo(m);
 }
 
 /** One self-contained section for a completion group: stats table + climb chart. */
@@ -310,20 +302,30 @@ function group(
   }
 
   if (series.length) {
+    const chartWrap = document.createElement('div');
     const h3 = document.createElement('h3');
     h3.textContent = 'Climb Rate Distribution';
     const holder = document.createElement('div');
     holder.className = 'chart-holder';
     const canvas = document.createElement('canvas');
     holder.appendChild(canvas);
-    card.append(h3, holder);
+    chartWrap.append(h3, holder);
+    card.append(chartWrap);
     const chart = makeChart(canvas, series, sel);
-    sel.subscribe(() => {
+
+    const syncChart = (): void => {
+      // Hide the whole plot when no pilot in this section is selected.
+      const anyVisible = series.some((s) => sel.has(s.pilot));
+      chartWrap.style.display = anyVisible ? '' : 'none';
+      if (!anyVisible) return;
       chart.data.datasets.forEach((ds, i) =>
         chart.setDatasetVisibility(i, sel.has(ds.label as string)),
       );
       chart.update();
-    });
+      chart.resize(); // recover canvas size if it was hidden
+    };
+    sel.subscribe(syncChart);
+    syncChart();
     charts.push(chart);
   }
 
@@ -344,6 +346,8 @@ function tableEl(
   // Default to sorting by Completion Time (column index 1), fastest first.
   let sortCol = table.headers.findIndex((h) => h.startsWith('Completion Time'));
   let sortDir: 1 | -1 = 1;
+  // Deselected pilots are tucked into a collapsed section to shorten the page.
+  let showDeselected = false;
 
   const thead = document.createElement('thead');
   const htr = document.createElement('tr');
@@ -421,19 +425,8 @@ function tableEl(
         })
       : table.dirs.map(() => null);
 
-    // Selected pilots are always grouped above unselected ones; the active
-    // column sort (if any) orders within each group.
-    const ordered = [...rows].sort((a, b) => {
-      const sa = sel.has(a[0].text);
-      const sb = sel.has(b[0].text);
-      if (sa !== sb) return sa ? -1 : 1;
-      return sortCol < 0 ? 0 : compare(a, b);
-    });
-
-    tbody.innerHTML = '';
-    for (const row of ordered) {
+    const buildRow = (row: StatsTable['completed'][number], isSelected: boolean): HTMLElement => {
       const name = row[0].text;
-      const isSelected = sel.has(name);
       const tr = document.createElement('tr');
       if (!isSelected) tr.classList.add('unselected');
 
@@ -459,7 +452,34 @@ function tableEl(
         }
         tr.appendChild(td);
       });
-      tbody.appendChild(tr);
+      return tr;
+    };
+
+    // The active column sort orders within the selected / deselected groups.
+    const sortRows = (subset: StatsTable['completed']): StatsTable['completed'] =>
+      sortCol < 0 ? subset : [...subset].sort(compare);
+    const selectedSorted = sortRows(rows.filter((r) => sel.has(r[0].text)));
+    const deselectedSorted = sortRows(rows.filter((r) => !sel.has(r[0].text)));
+
+    tbody.innerHTML = '';
+    for (const row of selectedSorted) tbody.appendChild(buildRow(row, true));
+
+    // Collapsible section holding the deselected pilots.
+    if (deselectedSorted.length) {
+      const toggleTr = document.createElement('tr');
+      toggleTr.className = 'deselected-toggle';
+      const td = document.createElement('td');
+      td.colSpan = table.headers.length + 1;
+      const n = deselectedSorted.length;
+      td.textContent = `${showDeselected ? '▾' : '▸'}  ${n} deselected pilot${n === 1 ? '' : 's'}`;
+      td.addEventListener('click', () => {
+        showDeselected = !showDeselected;
+        renderBody();
+      });
+      toggleTr.appendChild(td);
+      tbody.appendChild(toggleTr);
+
+      if (showDeselected) for (const row of deselectedSorted) tbody.appendChild(buildRow(row, false));
     }
   }
 
@@ -469,28 +489,93 @@ function tableEl(
   return { el: wrap, rerender: renderBody };
 }
 
-// Plugin: draw a dashed vertical line at each visible pilot's average climb rate.
-const avgLinePlugin = {
+// Plugin: draw a dashed vertical line at each visible pilot's average climb
+// rate, with a hover label when the cursor is near a line.
+interface AvgLine {
+  x: number;
+  pilot: string;
+  avg: number;
+  color: string;
+}
+type ChartWithAvg = Chart & { $avgLines?: AvgLine[]; $avgHover?: string | null };
+
+const avgLinePlugin: Plugin<'line'> = {
   id: 'avgLines',
-  afterDatasetsDraw(chart: Chart) {
+  afterDatasetsDraw(chart) {
     const { ctx, chartArea, scales } = chart;
+    const c = chart as ChartWithAvg;
+    const hover = c.$avgHover;
+    const lines: AvgLine[] = [];
+
     chart.data.datasets.forEach((ds, i) => {
       if (!chart.isDatasetVisible(i)) return;
       const avg = (ds as ChartDataset & { avgClimbRate?: number }).avgClimbRate;
       if (avg === undefined || Number.isNaN(avg)) return;
       const x = scales.x.getPixelForValue(avg);
       if (x < chartArea.left || x > chartArea.right) return;
+      const color = ds.borderColor as string;
+      const hovered = ds.label === hover;
       ctx.save();
       ctx.beginPath();
       ctx.setLineDash([5, 4]);
-      ctx.strokeStyle = ds.borderColor as string;
-      ctx.globalAlpha = 0.7;
-      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = color;
+      ctx.globalAlpha = hovered ? 1 : 0.7;
+      ctx.lineWidth = hovered ? 3 : 1.5;
       ctx.moveTo(x, chartArea.top);
       ctx.lineTo(x, chartArea.bottom);
       ctx.stroke();
       ctx.restore();
+      lines.push({ x, pilot: ds.label as string, avg, color });
     });
+    c.$avgLines = lines;
+
+    // Draw the hover label for the line under the cursor.
+    const entry = hover ? lines.find((l) => l.pilot === hover) : undefined;
+    if (entry) {
+      ctx.save();
+      ctx.font = "12px 'Roboto', system-ui, sans-serif";
+      ctx.textBaseline = 'middle';
+      const text = `${entry.pilot} — avg ${entry.avg.toFixed(2)} m/s`;
+      const padX = 7;
+      const w = ctx.measureText(text).width + padX * 2;
+      const h = 22;
+      let bx = entry.x + 8;
+      if (bx + w > chartArea.right) bx = entry.x - 8 - w;
+      const by = chartArea.top + 6;
+      ctx.fillStyle = 'rgba(20, 12, 12, 0.92)';
+      ctx.beginPath();
+      ctx.roundRect(bx, by, w, h, 5);
+      ctx.fill();
+      ctx.fillStyle = entry.color;
+      ctx.fillRect(bx, by, 3, h);
+      ctx.fillStyle = '#f5efe1';
+      ctx.fillText(text, bx + padX, by + h / 2 + 1);
+      ctx.restore();
+    }
+  },
+  afterEvent(chart, args) {
+    const c = chart as ChartWithAvg;
+    const e = args.event;
+    let near: string | null = null;
+    if (e.type === 'mousemove') {
+      const { top, bottom } = chart.chartArea;
+      if (e.x != null && e.y != null && e.y >= top && e.y <= bottom) {
+        let best = 6; // px proximity threshold
+        for (const l of c.$avgLines ?? []) {
+          const d = Math.abs(l.x - e.x);
+          if (d <= best) {
+            best = d;
+            near = l.pilot;
+          }
+        }
+      }
+    } else if (e.type !== 'mouseout') {
+      return;
+    }
+    if (near !== (c.$avgHover ?? null)) {
+      c.$avgHover = near;
+      args.changed = true;
+    }
   },
 };
 
@@ -509,10 +594,6 @@ function makeChart(canvas: HTMLCanvasElement, series: ClimbSeries[], sel: Select
       pointHoverRadius: 6,
     } as ChartDataset<'line'> & { avgClimbRate: number };
   });
-
-  // Track clicks per chart so we can distinguish a double-click on a legend
-  // item (isolate that pilot) from a single click (default show/hide toggle).
-  let lastClick = { index: -1, time: 0 };
 
   return new Chart(canvas, {
     type: 'line',
@@ -544,37 +625,13 @@ function makeChart(canvas: HTMLCanvasElement, series: ClimbSeries[], sel: Select
         },
       },
       plugins: {
-        legend: {
-          position: 'bottom',
-          labels: {
-            usePointStyle: true,
-            boxWidth: 8,
-            // Widen the gap between the color marker and the pilot name.
-            generateLabels(chart) {
-              const labels = Chart.defaults.plugins.legend.labels.generateLabels(chart);
-              for (const l of labels) l.text = '   ' + l.text;
-              return labels;
-            },
-          },
-          onClick(_e, legendItem, legend) {
-            const index = legendItem.datasetIndex;
-            if (index === undefined) return;
-            const name = legend.chart.data.datasets[index].label as string;
-            const now = Date.now();
-            const isDouble = index === lastClick.index && now - lastClick.time < 300;
-            lastClick = { index, time: now };
-
-            // Route through the shared selection so the table and map stay in
-            // sync. Single click toggles this pilot; double click isolates it
-            // (double-clicking an already-isolated pilot restores everyone).
-            if (isDouble) sel.isolate(name);
-            else sel.toggle(name);
-          },
-        },
+        // Pilot names live in the table; the chart legend is hidden to reduce
+        // clutter. Selection is driven by the table and synced via `sel`.
+        legend: { display: false },
         tooltip: {
           callbacks: {
             title: (items) => CLIMB_RATE_TICKS[Number(items[0].parsed.x) - 1] ?? '',
-            label: (item) => `${item.dataset.label}: ${item.parsed.y.toFixed(1)}%`,
+            label: (item) => `${item.dataset.label}: ${(item.parsed.y ?? 0).toFixed(1)}%`,
           },
         },
       },
