@@ -1,0 +1,111 @@
+{
+  "version": 1,
+  "taskType": "CLASSIC",
+  "turnpoints": [
+    {
+      "radius": 1,
+      "waypoint": {
+        "lon": -120.038617,
+        "lat": 47.80415,
+        "altSmoothed": 0,
+        "name": "LAUNCH",
+        "description": "LAUNCH"
+      },
+      "type": "TAKEOFF"
+    },
+    {
+      "radius": 3000,
+      "waypoint": {
+        "lon": -120.038617,
+        "lat": 47.80415,
+        "altSmoothed": 0,
+        "name": "LAUNCH",
+        "description": "LAUNCH"
+      },
+      "type": "SSS"
+    },
+    {
+      "radius": 7000,
+      "waypoint": {
+        "lon": -120.059567,
+        "lat": 47.655717,
+        "altSmoothed": 0,
+        "name": "WATERV",
+        "description": "WATERV"
+      }
+    },
+    {
+      "radius": 7000,
+      "waypoint": {
+        "lon": -120.466217,
+        "lat": 47.524017,
+        "altSmoothed": 0,
+        "name": "CASHLZ",
+        "description": "CASHLZ"
+      }
+    },
+    {
+      "radius": 7000,
+      "waypoint": {
+        "lon": -120.059567,
+        "lat": 47.655717,
+        "altSmoothed": 0,
+        "name": "WATERV",
+        "description": "WATERV"
+      }
+    },
+    {
+      "radius": 19000,
+      "waypoint": {
+        "lon": -119.704267,
+        "lat": 47.42855,
+        "altSmoothed": 0,
+        "name": "SAGE23",
+        "description": "SAGE23"
+      }
+    },
+    {
+      "radius": 7000,
+      "waypoint": {
+        "lon": -120.059567,
+        "lat": 47.655717,
+        "altSmoothed": 0,
+        "name": "WATERV",
+        "description": "WATERV"
+      }
+    },
+    {
+      "radius": 2000,
+      "waypoint": {
+        "lon": -119.985017,
+        "lat": 47.798667,
+        "altSmoothed": 0,
+        "name": "SOCCER",
+        "description": "SOCCER"
+      },
+      "type": "ESS"
+    },
+    {
+      "radius": 100,
+      "waypoint": {
+        "lon": -119.985033,
+        "lat": 47.798667,
+        "altSmoothed": 0,
+        "name": "SOCCER",
+        "description": "SOCCER"
+      }
+    }
+  ],
+  "sss": {
+    "type": "RACE",
+    "direction": "EXIT",
+    "timeGates": [
+      "20:00:00Z"
+    ]
+  },
+  "goal": {
+    "type": "CYLINDER",
+    "deadline": "05:00:00Z"
+  },
+  "earthModel": "WGS84"
+}
