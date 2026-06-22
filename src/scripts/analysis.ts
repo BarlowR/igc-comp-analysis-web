@@ -38,6 +38,22 @@ const PALETTE = [
   '#5e35b1', '#9a6324', '#800000', '#808000', '#000075', '#546e7a',
 ];
 
+// Muted grey used to draw deselected pilots as faint background lines on both
+// the map and the climb chart, so the field stays visible without competing
+// with the selected (coloured) pilots.
+const DESELECTED_GREY = '#9a948a';
+
+/**
+ * Assign every pilot one stable colour, keyed by name, so a pilot looks the
+ * same on the map and on both climb charts. Built once per analysis run from
+ * the canonical pilot order.
+ */
+function buildPilotColors(names: string[]): Map<string, string> {
+  const colors = new Map<string, string>();
+  names.forEach((n, i) => colors.set(n, PALETTE[i % PALETTE.length]));
+  return colors;
+}
+
 let charts: Chart[] = [];
 let map: L.Map | null = null;
 
@@ -96,6 +112,13 @@ interface Selection {
   setMany(names: string[], on: boolean): void;
   isolate(name: string): void;
   subscribe(fn: () => void): void;
+  // Cross-view highlight of a single pilot: click-to-pin emphasises that pilot's
+  // row, climb line, and map track at once (no hover effect). Separate channel
+  // from selection so pinning doesn't trigger full re-renders.
+  highlight(): string | null;
+  togglePin(name: string): void;
+  isPinned(name: string): boolean;
+  onHighlight(fn: () => void): void;
 }
 
 function makeSelection(allNames: string[], initial: string[]): Selection {
@@ -104,12 +127,27 @@ function makeSelection(allNames: string[], initial: string[]): Selection {
   const notify = (): void => {
     for (const f of subs) f();
   };
+  // The pinned pilot is the cross-view highlight; null when nothing is pinned.
+  let pinned: string | null = null;
+  const hsubs: (() => void)[] = [];
+  const notifyHighlight = (): void => {
+    for (const f of hsubs) f();
+  };
   return {
     has: (n) => selected.has(n),
     all: () => [...allNames],
     selectedCount: () => selected.size,
     subscribe: (f) => {
       subs.push(f);
+    },
+    highlight: () => pinned,
+    togglePin(n) {
+      pinned = pinned === n ? null : n;
+      notifyHighlight();
+    },
+    isPinned: (n) => pinned === n,
+    onHighlight(f) {
+      hsubs.push(f);
     },
     toggle(n) {
       if (selected.has(n)) selected.delete(n);
@@ -174,20 +212,23 @@ function render(
     statusEl.textContent += `  Showing the top ${TOP_N} of ${ordered.length} pilots by default — use the “deselected pilots” section or the checkboxes to show more.`;
   }
 
+  // One stable colour per pilot, shared by the map and both climb charts.
+  const colors = buildPilotColors(ordered);
+
   if (table.completed.length || climb.completed.length) {
-    resultsEl.appendChild(group('Completed Task', table, table.completed, true, climb.completed, sel));
+    resultsEl.appendChild(group('Completed Task', table, table.completed, true, climb.completed, sel, colors));
   }
   if (mapData.turnpoints.length || mapData.tracks.length) {
-    resultsEl.appendChild(mapSection(mapData, sel));
+    resultsEl.appendChild(mapSection(mapData, sel, colors));
   }
   if (table.incomplete.length || climb.incomplete.length) {
-    resultsEl.appendChild(group('Did Not Complete Task', table, table.incomplete, false, climb.incomplete, sel));
+    resultsEl.appendChild(group('Did Not Complete Task', table, table.incomplete, false, climb.incomplete, sel, colors));
   }
   resultsEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 /** Build the "Task & Tracks" card and initialise the Leaflet map inside it. */
-function mapSection(data: MapData, sel: Selection): HTMLElement {
+function mapSection(data: MapData, sel: Selection, colors: Map<string, string>): HTMLElement {
   const card = document.createElement('section');
   card.className = 'card';
   const h = document.createElement('h2');
@@ -198,7 +239,7 @@ function mapSection(data: MapData, sel: Selection): HTMLElement {
 
   // Leaflet must initialise against an element already in the DOM with a size,
   // so defer until after this card is appended and laid out.
-  queueMicrotask(() => initMap(holder, data, sel));
+  queueMicrotask(() => initMap(holder, data, sel, colors));
   return card;
 }
 
@@ -208,7 +249,7 @@ interface TrackLayer {
   layer: L.Polyline;
 }
 
-function initMap(holder: HTMLElement, data: MapData, sel: Selection): void {
+function initMap(holder: HTMLElement, data: MapData, sel: Selection, colors: Map<string, string>): void {
   const m = L.map(holder, { preferCanvas: true });
   map = m;
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -240,12 +281,19 @@ function initMap(holder: HTMLElement, data: MapData, sel: Selection): void {
   }
 
   // --- pilot tracks --------------------------------------------------------
+  // Every track stays on the map at all times. Selected pilots draw in their
+  // own colour; deselected pilots fade to faint grey background lines so the
+  // rest of the field stays visible (toggled via the table).
   const trackLayers: TrackLayer[] = [];
-  data.tracks.forEach((tr, i) => {
-    const color = PALETTE[i % PALETTE.length];
+  data.tracks.forEach((tr) => {
+    const color = colors.get(tr.pilot) ?? PALETTE[0];
     const layer = L.polyline(tr.points, { color, weight: 2, opacity: 0.85 });
     layer.bindTooltip(tr.pilot, { sticky: true });
-    if (sel.has(tr.pilot)) layer.addTo(m);
+    // Click a track to pin/unpin its cross-view highlight (no hover effect).
+    layer.on('click', () => {
+      if (sel.has(tr.pilot)) sel.togglePin(tr.pilot);
+    });
+    layer.addTo(m);
     trackLayers.push({ name: tr.pilot, color, layer });
     for (const pt of tr.points) bounds.extend(pt);
   });
@@ -253,16 +301,42 @@ function initMap(holder: HTMLElement, data: MapData, sel: Selection): void {
   if (bounds.isValid()) m.fitBounds(bounds, { padding: [30, 30] });
   m.invalidateSize();
 
-  // Keep the map in sync when selection changes from the table. Pilot names are
-  // not listed on the map (selection is driven by the table); hover a track to
-  // see its pilot.
-  sel.subscribe(() => {
+  // Restyle every track for the current selection. Pilot names are not listed
+  // on the map (selection is driven by the table); hover a track to see its
+  // pilot. When exactly one pilot is selected, that track is emphasised.
+  const styleTracks = (): void => {
+    const single = sel.selectedCount() === 1;
+    const highlight = sel.highlight();
     for (const t of trackLayers) {
-      const on = sel.has(t.name);
-      if (on && !m.hasLayer(t.layer)) t.layer.addTo(m);
-      else if (!on && m.hasLayer(t.layer)) m.removeLayer(t.layer);
+      const isH = t.name === highlight;
+      if (sel.has(t.name)) {
+        t.layer.setStyle({
+          color: t.color,
+          weight: isH ? 5 : single ? 4 : 2,
+          opacity: isH ? 1 : 0.9,
+        });
+        // Re-enable the hover label for selected pilots.
+        if (!t.layer.getTooltip()) t.layer.bindTooltip(t.name, { sticky: true });
+        t.layer.bringToFront();
+      } else {
+        // Grey background pilots aren't hover-selectable: drop the tooltip. A
+        // highlighted (from elsewhere) deselected pilot is darkened so it reads.
+        t.layer.setStyle({
+          color: isH ? '#6b655c' : DESELECTED_GREY,
+          weight: isH ? 2 : 1,
+          opacity: isH ? 0.75 : 0.3,
+        });
+        t.layer.closeTooltip();
+        t.layer.unbindTooltip();
+        t.layer.bringToBack();
+      }
     }
-  });
+    // Keep the highlighted track above everything else.
+    if (highlight) trackLayers.find((t) => t.name === highlight)?.layer.bringToFront();
+  };
+  styleTracks();
+  sel.subscribe(styleTracks);
+  sel.onHighlight(styleTracks);
 }
 
 /** One self-contained section for a completion group: stats table + climb chart. */
@@ -273,6 +347,7 @@ function group(
   gradient: boolean,
   series: ClimbSeries[],
   sel: Selection,
+  colors: Map<string, string>,
 ): HTMLElement {
   const card = document.createElement('section');
   card.className = 'card';
@@ -296,21 +371,30 @@ function group(
     holder.appendChild(canvas);
     chartWrap.append(h3, holder);
     card.append(chartWrap);
-    const chart = makeChart(canvas, series, sel);
+    const chart = makeChart(canvas, series, sel, colors);
 
     const syncChart = (): void => {
       // Hide the whole plot when no pilot in this section is selected.
       const anyVisible = series.some((s) => sel.has(s.pilot));
       chartWrap.style.display = anyVisible ? '' : 'none';
       if (!anyVisible) return;
-      chart.data.datasets.forEach((ds, i) =>
-        chart.setDatasetVisibility(i, sel.has(ds.label as string)),
-      );
+      styleChartDatasets(chart, sel);
       chart.update();
       chart.resize(); // recover canvas size if it was hidden
     };
     sel.subscribe(syncChart);
     syncChart();
+
+    // Reflect the cross-view highlight onto this chart: bold the highlighted
+    // pilot's line and surface its average-climb label, without a full re-sync.
+    const applyChartHighlight = (): void => {
+      if (chartWrap.style.display === 'none') return;
+      (chart as ChartWithAvg).$avgHover = sel.highlight();
+      styleChartDatasets(chart, sel);
+      chart.update('none');
+    };
+    sel.onHighlight(applyChartHighlight);
+
     charts.push(chart);
   }
 
@@ -369,6 +453,10 @@ function tableEl(
 
   const tbody = document.createElement('tbody');
 
+  // Current row element per pilot, rebuilt on each renderBody, so the highlight
+  // subscription can toggle the bold class without a full re-render.
+  const rowEls = new Map<string, HTMLElement>();
+
   // Compare two rows on the active column: numeric where possible, with
   // non-numeric cells ('—') always sorted to the bottom.
   function compare(a: StatsTable['completed'][number], b: StatsTable['completed'][number]): number {
@@ -414,6 +502,7 @@ function tableEl(
       const name = row[0].text;
       const tr = document.createElement('tr');
       if (!isSelected) tr.classList.add('unselected');
+      rowEls.set(name, tr);
 
       const checkTd = document.createElement('td');
       checkTd.className = 'select-col';
@@ -427,7 +516,12 @@ function tableEl(
       row.forEach((cell, ci) => {
         const td = document.createElement('td');
         td.textContent = cell.text;
-        if (ci === 0) td.className = 'name';
+        if (ci === 0) {
+          td.className = 'name';
+          // Click the pilot name to pin the highlight (click again to unpin).
+          td.title = 'Click to pin/unpin highlight';
+          td.addEventListener('click', () => sel.togglePin(name));
+        }
         // Shade only selected rows, relative to the selected-pilot bounds.
         const b = bounds[ci];
         const bg = isSelected && b ? gradientColor(cell.value, b.min, b.max, table.dirs[ci]) : null;
@@ -447,6 +541,7 @@ function tableEl(
     const deselectedSorted = sortRows(rows.filter((r) => !sel.has(r[0].text)));
 
     tbody.innerHTML = '';
+    rowEls.clear();
     for (const row of selectedSorted) tbody.appendChild(buildRow(row, true));
 
     // Collapsible section holding the deselected pilots.
@@ -466,7 +561,16 @@ function tableEl(
 
       if (showDeselected) for (const row of deselectedSorted) tbody.appendChild(buildRow(row, false));
     }
+
+    // Newly built rows should reflect the current highlight.
+    applyHighlight();
   }
+
+  // Mark the pinned pilot's row (persistent click-to-pin emphasis).
+  const applyHighlight = (): void => {
+    for (const [name, el] of rowEls) el.classList.toggle('pinned', sel.isPinned(name));
+  };
+  sel.onHighlight(applyHighlight);
 
   renderBody();
   t.append(thead, tbody);
@@ -493,8 +597,11 @@ const avgLinePlugin: Plugin<'line'> = {
     const lines: AvgLine[] = [];
 
     chart.data.datasets.forEach((ds, i) => {
+      // Only selected pilots get an average line; deselected pilots stay as
+      // plain grey background curves.
+      if (!(ds as ClimbDataset).selected) return;
       if (!chart.isDatasetVisible(i)) return;
-      const avg = (ds as ChartDataset & { avgClimbRate?: number }).avgClimbRate;
+      const avg = (ds as ClimbDataset).avgClimbRate;
       if (avg === undefined || Number.isNaN(avg)) return;
       const x = scales.x.getPixelForValue(avg);
       if (x < chartArea.left || x > chartArea.right) return;
@@ -564,20 +671,96 @@ const avgLinePlugin: Plugin<'line'> = {
   },
 };
 
-function makeChart(canvas: HTMLCanvasElement, series: ClimbSeries[], sel: Selection): Chart {
-  const datasets = series.map((s, i) => {
-    const color = PALETTE[i % PALETTE.length];
+/** Extra per-dataset fields the climb chart and avg-line plugin rely on. */
+type ClimbDataset = ChartDataset<'line'> & {
+  avgClimbRate?: number;
+  baseColor?: string;
+  selected?: boolean;
+};
+
+// Plugin: draw deselected pilots as faint grey background lines. They are hidden
+// from Chart.js (so they're non-interactive), so we stroke them directly from
+// the dataset values here, behind the selected datasets.
+const greyBackgroundPlugin: Plugin<'line'> = {
+  id: 'greyBackground',
+  beforeDatasetsDraw(chart) {
+    const { ctx, chartArea, scales } = chart;
+    const xs = scales.x;
+    const ys = scales.y;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(chartArea.left, chartArea.top, chartArea.width, chartArea.height);
+    ctx.clip();
+    ctx.strokeStyle = DESELECTED_GREY;
+    ctx.lineWidth = 1;
+    ctx.globalAlpha = 0.5;
+    for (const ds of chart.data.datasets as ClimbDataset[]) {
+      if (ds.selected) continue;
+      const pts = ds.data as { x: number; y: number }[];
+      ctx.beginPath();
+      pts.forEach((p, i) => {
+        const px = xs.getPixelForValue(p.x);
+        const py = ys.getPixelForValue(p.y);
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      });
+      ctx.stroke();
+    }
+    ctx.restore();
+  },
+};
+
+/**
+ * Restyle the climb chart for the current selection: selected pilots draw in
+ * their own colour, deselected pilots fade to faint grey background lines, and
+ * when exactly one pilot is selected its line is thickened. The `selected` flag
+ * also tells the avg-line plugin which pilots get a vertical average line.
+ */
+function styleChartDatasets(chart: Chart, sel: Selection): void {
+  const single = sel.selectedCount() === 1;
+  const highlight = sel.highlight();
+  chart.data.datasets.forEach((ds, i) => {
+    const d = ds as ClimbDataset;
+    const on = sel.has(d.label as string);
+    d.selected = on;
+    // Deselected pilots are *hidden* from Chart.js so they take no part in
+    // hover/tooltip/nearest interaction; the greyBackground plugin still draws
+    // them as faint background lines. Selected pilots are normal interactive
+    // datasets, drawn in their own colour.
+    chart.setDatasetVisibility(i, on);
+    if (on) {
+      const isPinned = d.label === highlight;
+      d.borderColor = d.baseColor;
+      d.backgroundColor = d.baseColor;
+      // The pinned pilot's line is bolder than the rest; a lone selection is
+      // also thickened slightly.
+      d.borderWidth = isPinned ? 4.5 : single ? 3.5 : 2;
+      d.pointRadius = isPinned ? 5 : 4;
+      d.pointHoverRadius = 6;
+    }
+  });
+}
+
+function makeChart(
+  canvas: HTMLCanvasElement,
+  series: ClimbSeries[],
+  sel: Selection,
+  colors: Map<string, string>,
+): Chart {
+  const datasets = series.map((s) => {
+    const color = colors.get(s.pilot) ?? PALETTE[0];
     return {
       label: s.pilot,
       data: s.values.map((y, x) => ({ x: x + 1, y })),
       borderColor: color,
       backgroundColor: color,
+      baseColor: color,
       avgClimbRate: s.avgClimbRate,
-      hidden: !sel.has(s.pilot),
+      selected: sel.has(s.pilot),
       tension: 0,
       pointRadius: 4,
       pointHoverRadius: 6,
-    } as ChartDataset<'line'> & { avgClimbRate: number };
+    } as ClimbDataset;
   });
 
   return new Chart(canvas, {
@@ -621,6 +804,6 @@ function makeChart(canvas: HTMLCanvasElement, series: ClimbSeries[], sel: Select
         },
       },
     },
-    plugins: [avgLinePlugin],
+    plugins: [greyBackgroundPlugin, avgLinePlugin],
   });
 }

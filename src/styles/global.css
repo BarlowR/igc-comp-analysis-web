@@ -264,6 +264,23 @@ table.stats tbody tr.unselected:hover {
   opacity: 0.8;
 }
 
+/* Cross-view pin: one pilot emphasised across the table, climb chart, and map
+   at once. Click a pilot name to pin it. Bolds the row, draws an accent rail
+   down its left edge, and tags the name with a pin marker. */
+table.stats tbody tr.pinned td {
+  font-weight: 700;
+}
+
+table.stats tbody tr.pinned td:first-child {
+  box-shadow: inset 3px 0 0 var(--accent-strong);
+}
+
+table.stats tbody tr.pinned td.name::before {
+  content: '📌';
+  margin-right: 6px;
+  font-size: 0.85em;
+}
+
 /* Collapsible header row for the deselected-pilots section. */
 table.stats tbody tr.deselected-toggle td {
   cursor: pointer;
@@ -290,6 +307,7 @@ table.gradient td.shaded {
 
 table.stats td.name {
   color: var(--text);
+  cursor: pointer;
 }
 
 .chart-holder {
