@@ -81,6 +81,8 @@ export type Stats = Record<string, number | boolean | null>;
 export class IgcFlight {
   pilotName = 'Unknown Pilot';
   day: Date = new Date(); // mutated on midnight rollover, mirroring Python self.day
+  /** The flight's first (launch) day, captured before any UTC-midnight rollover. */
+  private firstDay: Date | null = null;
   private lastHour: number | null = null;
 
   fixes: Fixes = { timeMs: [], lat: [], lon: [], validity: [], pressureAlt: [], gnssAlt: [] };
@@ -143,6 +145,7 @@ export class IgcFlight {
     const minute = parseInt(line.slice(3, 5), 10);
     const sec = parseInt(line.slice(5, 7), 10);
 
+    if (this.firstDay === null) this.firstDay = this.day; // launch day, pre-rollover
     if (this.lastHour === 23 && hour === 0) {
       this.day = new Date(this.day.getTime() + 24 * 3600 * 1000);
     }
@@ -366,11 +369,14 @@ export class IgcFlight {
   private compStartMs(task: XcTask): number {
     const gate = task.sss.timeGates[0]; // e.g. "19:30:00Z"
     const [h, m, s] = gate.replace('Z', '').split(':').map((p) => parseInt(p, 10));
-    // Python combines with self.day.date() (local), so we do the same.
+    // Anchor to the launch day, not the post-rollover `this.day`: for tasks that
+    // cross UTC midnight, `this.day` has been advanced during fix parsing, which
+    // would push the gate a day past the whole flight and empty the window.
+    const day = this.firstDay ?? this.day;
     return new Date(
-      this.day.getFullYear(),
-      this.day.getMonth(),
-      this.day.getDate(),
+      day.getFullYear(),
+      day.getMonth(),
+      day.getDate(),
       h,
       m,
       s,
