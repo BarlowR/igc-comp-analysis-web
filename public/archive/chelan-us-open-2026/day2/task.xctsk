@@ -1,0 +1,91 @@
+{
+  "version": 1,
+  "taskType": "CLASSIC",
+  "turnpoints": [
+    {
+      "radius": 1,
+      "waypoint": {
+        "lon": -120.03862,
+        "lat": 47.80415,
+        "altSmoothed": 0,
+        "name": "LAUNCH",
+        "description": "LAUNCH"
+      },
+      "type": "TAKEOFF"
+    },
+    {
+      "radius": 3000,
+      "waypoint": {
+        "lon": -120.03862,
+        "lat": 47.80415,
+        "altSmoothed": 0,
+        "name": "LAUNCH",
+        "description": "LAUNCH"
+      },
+      "type": "SSS"
+    },
+    {
+      "radius": 18000,
+      "waypoint": {
+        "lon": -119.49148,
+        "lat": 47.69965,
+        "altSmoothed": 0,
+        "name": "STAHER",
+        "description": "STAHER"
+      }
+    },
+    {
+      "radius": 11000,
+      "waypoint": {
+        "lon": -120.17317,
+        "lat": 47.56237,
+        "altSmoothed": 0,
+        "name": "BADGRN",
+        "description": "BADGRN"
+      }
+    },
+    {
+      "radius": 15000,
+      "waypoint": {
+        "lon": -119.46355,
+        "lat": 47.59175,
+        "altSmoothed": 0,
+        "name": "GR604",
+        "description": "GR604"
+      }
+    },
+    {
+      "radius": 3000,
+      "waypoint": {
+        "lon": -119.8457,
+        "lat": 47.25048,
+        "altSmoothed": 0,
+        "name": "QUINLZ",
+        "description": "QUINLZ"
+      },
+      "type": "ESS"
+    },
+    {
+      "radius": 500,
+      "waypoint": {
+        "lon": -119.8457,
+        "lat": 47.25048,
+        "altSmoothed": 0,
+        "name": "QUINLZ",
+        "description": "QUINLZ"
+      }
+    }
+  ],
+  "sss": {
+    "type": "RACE",
+    "direction": "EXIT",
+    "timeGates": [
+      "20:00:00Z"
+    ]
+  },
+  "goal": {
+    "type": "CYLINDER",
+    "deadline": "00:30:00Z"
+  },
+  "earthModel": "WGS84"
+}

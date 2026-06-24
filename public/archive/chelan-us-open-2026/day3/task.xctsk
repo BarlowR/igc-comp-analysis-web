@@ -1,0 +1,101 @@
+{
+  "version": 1,
+  "taskType": "CLASSIC",
+  "turnpoints": [
+    {
+      "radius": 1,
+      "waypoint": {
+        "lon": -120.03862,
+        "lat": 47.80415,
+        "altSmoothed": 0,
+        "name": "LAUNCH",
+        "description": "LAUNCH"
+      },
+      "type": "TAKEOFF"
+    },
+    {
+      "radius": 3000,
+      "waypoint": {
+        "lon": -120.03862,
+        "lat": 47.80415,
+        "altSmoothed": 0,
+        "name": "LAUNCH",
+        "description": "LAUNCH"
+      },
+      "type": "SSS"
+    },
+    {
+      "radius": 5000,
+      "waypoint": {
+        "lon": -120.35281,
+        "lat": 47.89667,
+        "altSmoothed": 0,
+        "name": "STRMMT",
+        "description": "STRMMT"
+      }
+    },
+    {
+      "radius": 4000,
+      "waypoint": {
+        "lon": -120.05957,
+        "lat": 47.65573,
+        "altSmoothed": 0,
+        "name": "WATERV",
+        "description": "WATERV"
+      }
+    },
+    {
+      "radius": 2000,
+      "waypoint": {
+        "lon": -119.81368,
+        "lat": 47.75752,
+        "altSmoothed": 0,
+        "name": "H17210",
+        "description": "H17210"
+      }
+    },
+    {
+      "radius": 24000,
+      "waypoint": {
+        "lon": -120.36793,
+        "lat": 47.73777,
+        "altSmoothed": 0,
+        "name": "ARDNVR",
+        "description": "ARDNVR"
+      }
+    },
+    {
+      "radius": 2000,
+      "waypoint": {
+        "lon": -119.98503,
+        "lat": 47.79867,
+        "altSmoothed": 0,
+        "name": "SOCCER",
+        "description": "SOCCER"
+      },
+      "type": "ESS"
+    },
+    {
+      "radius": 100,
+      "waypoint": {
+        "lon": -119.985033,
+        "lat": 47.798667,
+        "altSmoothed": 0,
+        "name": "SOCCER",
+        "description": "SOCCER"
+      }
+    }
+  ],
+  "sss": {
+    "type": "RACE",
+    "direction": "EXIT",
+    "timeGates": [
+      "22:15:00Z"
+    ]
+  },
+  "goal": {
+    "type": "CYLINDER",
+    "deadline": "02:00:00Z"
+  },
+  "earthModel": "WGS84"
+}
