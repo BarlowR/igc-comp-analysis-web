@@ -16,6 +16,7 @@ import {
 } from 'chart.js';
 import * as L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import { optimizeTaskRoute } from '../lib/math';
 import {
   Competition,
   CLIMB_RATE_TICKS,
@@ -282,14 +283,12 @@ function initMap(holder: HTMLElement, data: MapData, sel: Selection, colors: Map
 
   const bounds = L.latLngBounds([]);
 
-  // --- task geometry: cylinders + a dashed line through turnpoint centers ---
+  // --- task geometry: cylinders + the optimized task line ------------------
   // Added before the pilot tracks so it stays at the bottom of the stack —
   // beneath every track and dot. (The grey base lines deliberately do NOT get
   // bringToBack'd, which would otherwise sink them below the task.)
-  const route: L.LatLngExpression[] = [];
   for (const tp of data.turnpoints) {
     const center: L.LatLngExpression = [tp.lat, tp.lon];
-    route.push(center);
     const color = tp.type === 'SSS' ? '#2e7d32' : tp.type === 'ESS' ? '#c62828' : '#705a90';
     L.circle(center, {
       radius: tp.radius,
@@ -302,7 +301,15 @@ function initMap(holder: HTMLElement, data: MapData, sel: Selection, colors: Map
     L.circleMarker(center, { radius: 3, color, fillOpacity: 1 }).addTo(m);
     bounds.extend(center);
   }
-  if (route.length > 1) {
+
+  // Dashed line along the shortest route that touches each cylinder (the
+  // scored "optimized task"), rather than straight lines through the centres.
+  // Drop a leading TAKEOFF: the scored route starts at the SSS cylinder, and
+  // an exit-start takeoff usually sits inside it (a degenerate stub otherwise).
+  let routeTps = data.turnpoints;
+  if (routeTps[0]?.type === 'TAKEOFF' && routeTps.length > 1) routeTps = routeTps.slice(1);
+  if (routeTps.length > 1) {
+    const route = optimizeTaskRoute(routeTps);
     L.polyline(route, { color: '#140c0c', weight: 1.5, dashArray: '6 6', opacity: 0.7 }).addTo(m);
   }
 

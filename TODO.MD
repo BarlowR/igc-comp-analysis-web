@@ -9,7 +9,6 @@
 
 
 - [ ] Improve mobile display
-    - [ ] Make hover labels for map lines easier to trigger on mobile and desktop (line thickness?)
 
 - [ ] Make line colors (map and thermal plot) easier to map to pilot.
     - Each pilot now keeps one stable color, shared across the map and both
@@ -39,4 +38,10 @@
       full flight; only the map/altitude tracks are cut. Tracks that end before
       the start gate (flew and landed pre-task) are dropped from the plots.
 
-- [ ] Show optimized task line, not cylinder connections 
+- [x] Show optimized task line, not cylinder connections
+    - The map now draws the shortest route that touches each turnpoint cylinder
+      (the scored "optimized task") as the dashed line, instead of straight legs
+      through the cylinder centres. `optimizeTaskRoute` in src/lib/math.ts relaxes
+      a point on each circle to minimise total path length, working in a local
+      equirectangular (metres) projection. A leading TAKEOFF is dropped so the
+      route starts at the SSS cylinder. Cylinders + centre dots are unchanged. 
