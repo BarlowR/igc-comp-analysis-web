@@ -267,6 +267,9 @@ function initMap(holder: HTMLElement, data: MapData, sel: Selection, colors: Map
   const bounds = L.latLngBounds([]);
 
   // --- task geometry: cylinders + a dashed line through turnpoint centers ---
+  // Added before the pilot tracks so it stays at the bottom of the stack —
+  // beneath every track and dot. (The grey base lines deliberately do NOT get
+  // bringToBack'd, which would otherwise sink them below the task.)
   const route: L.LatLngExpression[] = [];
   for (const tp of data.turnpoints) {
     const center: L.LatLngExpression = [tp.lat, tp.lon];
@@ -329,7 +332,8 @@ function initMap(holder: HTMLElement, data: MapData, sel: Selection, colors: Map
         t.layer.closeTooltip();
         t.layer.unbindTooltip();
       }
-      t.layer.bringToBack();
+      // Note: no bringToBack here — that would sink the grey lines below the
+      // task cylinders. Order stays: task (added first) < grey lines < trails/dots.
     }
   };
   styleTracks();
@@ -1192,6 +1196,49 @@ const avgLinePlugin: Plugin<'line'> = {
   },
 };
 
+/** Shortest distance from point (px,py) to segment (ax,ay)-(bx,by). */
+function distToSegment(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const len2 = dx * dx + dy * dy;
+  const t = len2 ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / len2)) : 0;
+  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+}
+
+/**
+ * The pilot whose climb-chart line is under (x, y), or null. Tests the
+ * average-thermal vertical lines first, then each visible pilot's curve;
+ * everything must be within a few px so empty clicks don't pin anyone.
+ */
+function pilotAtChartPoint(chart: ChartWithAvg, x: number, y: number): string | null {
+  const { top, bottom } = chart.chartArea;
+  const THRESH = 6;
+  if (y < top || y > bottom) return null;
+  // Vertical average-thermal lines.
+  let best = THRESH;
+  let pilot: string | null = null;
+  for (const l of chart.$avgLines ?? []) {
+    const d = Math.abs(l.x - x);
+    if (d <= best) {
+      best = d;
+      pilot = l.pilot;
+    }
+  }
+  // Pilot distribution curves (only visible/selected datasets are interactive).
+  chart.data.datasets.forEach((ds, i) => {
+    if (!chart.isDatasetVisible(i)) return;
+    const pts = chart.getDatasetMeta(i).data;
+    for (let k = 0; k < pts.length - 1; k++) {
+      const d = distToSegment(x, y, pts[k].x, pts[k].y, pts[k + 1].x, pts[k + 1].y);
+      if (d <= best) {
+        best = d;
+        pilot = ds.label as string;
+      }
+    }
+  });
+  return pilot;
+}
+
 /** Extra per-dataset fields the climb chart and avg-line plugin rely on. */
 type ClimbDataset = ChartDataset<'line'> & {
   avgClimbRate?: number;
@@ -1295,6 +1342,16 @@ function makeChart(
       responsive: true,
       maintainAspectRatio: false,
       interaction: { mode: 'nearest', intersect: false },
+      // Click a pilot's curve or their average-thermal line to pin/unpin them.
+      onClick: (evt, _els, chart) => {
+        const pilot = pilotAtChartPoint(chart as ChartWithAvg, evt.x ?? -1, evt.y ?? -1);
+        if (pilot) sel.togglePin(pilot);
+      },
+      // Pointer cursor over a clickable line so the pin affordance is discoverable.
+      onHover: (evt, _els, chart) => {
+        const over = pilotAtChartPoint(chart as ChartWithAvg, evt.x ?? -1, evt.y ?? -1);
+        chart.canvas.style.cursor = over ? 'pointer' : 'default';
+      },
       scales: {
         x: {
           type: 'linear',
