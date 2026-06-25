@@ -274,7 +274,9 @@ interface TrackLayer {
 }
 
 function initMap(holder: HTMLElement, data: MapData, sel: Selection, colors: Map<string, string>): void {
-  const m = L.map(holder, { preferCanvas: true });
+  // A canvas renderer with hit tolerance makes the thin track lines far easier
+  // to tap (mobile) or hover (desktop) without thickening the lines themselves.
+  const m = L.map(holder, { preferCanvas: true, renderer: L.canvas({ tolerance: 12 }) });
   map = m;
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19,
@@ -322,8 +324,10 @@ function initMap(holder: HTMLElement, data: MapData, sel: Selection, colors: Map
     const color = colors.get(tr.pilot) ?? PALETTE[0];
     const layer = L.polyline(tr.points, { color: DESELECTED_GREY, weight: 1, opacity: 0.3 });
     layer.bindTooltip(tr.pilot, { sticky: true });
-    // Click a track to pin/unpin its cross-view highlight (no hover effect).
-    layer.on('click', () => {
+    // Tap/click a track to reveal its name (touch devices have no hover) and
+    // pin/unpin its cross-view highlight.
+    layer.on('click', (e) => {
+      layer.openTooltip(e.latlng);
       if (sel.has(tr.pilot)) sel.togglePin(tr.pilot);
     });
     layer.addTo(m);
@@ -1038,6 +1042,9 @@ function tableEl(
       const check = document.createElement('input');
       check.type = 'checkbox';
       check.checked = isSelected;
+      // The checkbox doubles as the pilot's colour key: a checked box fills with
+      // their track colour, matching how they're drawn on the map and charts.
+      check.style.accentColor = colors.get(name) ?? PALETTE[0];
       check.addEventListener('change', () => sel.toggle(name));
       checkTd.appendChild(check);
       tr.appendChild(checkTd);
@@ -1046,12 +1053,7 @@ function tableEl(
         const td = document.createElement('td');
         if (ci === 0) {
           td.className = 'name';
-          // Colour swatch matching the pilot's track: their colour when
-          // selected, grey when not — mirrors how they're drawn on the plots.
-          const swatch = document.createElement('span');
-          swatch.className = 'pilot-swatch';
-          swatch.style.backgroundColor = isSelected ? colors.get(name) ?? PALETTE[0] : DESELECTED_GREY;
-          td.append(swatch, document.createTextNode(cell.text));
+          td.append(document.createTextNode(cell.text));
           // Click the pilot name to pin the highlight (click again to unpin).
           td.title = 'Click to pin/unpin highlight';
           td.addEventListener('click', () => sel.togglePin(name));

@@ -264,17 +264,6 @@ table.stats td.name {
   font-weight: 400;
 }
 
-/* Colour swatch before the pilot name, matching their track colour. */
-.pilot-swatch {
-  display: inline-block;
-  width: 0.7rem;
-  height: 0.7rem;
-  margin-right: 0.45rem;
-  border-radius: 2px;
-  vertical-align: middle;
-  flex: none;
-}
-
 table.stats th.sortable {
   cursor: pointer;
   user-select: none;
@@ -470,4 +459,109 @@ table.stats td.name {
 
 .archive-empty {
   color: var(--muted);
+}
+
+/* --- Mobile: tighten the page chrome so the map, charts, and table get the
+   full width, and keep the pilot column in view while the stats scroll. --- */
+@media (max-width: 640px) {
+  .topnav {
+    padding: 1rem 1rem 0;
+    gap: 1rem;
+  }
+
+  .hero {
+    padding: 1.25rem 1rem 1rem;
+  }
+
+  main {
+    padding: 0 0.75rem 2rem;
+  }
+
+  .card {
+    padding: 1rem;
+    border-radius: 9px;
+  }
+
+  .card h2 {
+    font-size: 1.25rem;
+  }
+
+  /* Trade some height for a workable aspect ratio on tall phone screens. */
+  .map-holder {
+    height: 70vh;
+    max-height: 560px;
+  }
+
+  .chart-holder {
+    height: 320px;
+  }
+
+  .alt-plot-canvas {
+    height: 160px;
+  }
+
+  table.stats {
+    font-size: 0.75rem;
+  }
+
+  table.stats th,
+  table.stats td {
+    padding: 0.3rem 0.4rem;
+  }
+
+  /* Let the long header labels wrap so each column collapses to the width of
+     its short numeric values instead of one long header line. */
+  table.stats th.sortable {
+    white-space: normal;
+    width: 3.4rem;
+    min-width: 3.4rem;
+    font-size: 0.68rem;
+    line-height: 1.2;
+    vertical-align: bottom;
+  }
+
+  /* Freeze the checkbox + pilot-name columns so the metrics scroll under them.
+     z-index layering: sticky body cells (1) < sticky header row (2) < the
+     frozen header corner cells (3). */
+  table.stats th {
+    z-index: 2;
+  }
+
+  table.stats td.select-col,
+  table.stats td.name {
+    position: sticky;
+    z-index: 1;
+    background: var(--panel);
+  }
+
+  table.stats td.select-col,
+  table.stats thead th.select-col {
+    left: 0;
+    width: 2rem;
+    min-width: 2rem;
+    padding-left: 0.3rem;
+    padding-right: 0.3rem;
+  }
+
+  table.stats td.name,
+  table.stats thead th:nth-child(2) {
+    position: sticky;
+    left: 2rem;
+    box-shadow: inset -1px 0 0 var(--border);
+  }
+
+  /* Wrap pilot names onto (up to) two lines so the frozen name column stays
+     narrow instead of stretching to the longest full name. */
+  table.stats td.name {
+    white-space: normal;
+    width: 5rem;
+    min-width: 5rem;
+    line-height: 1.2;
+  }
+
+  table.stats thead th.select-col,
+  table.stats thead th:nth-child(2) {
+    z-index: 3;
+    background: var(--panel-2);
+  }
 }

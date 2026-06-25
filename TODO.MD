@@ -8,7 +8,7 @@
       runs the live client-side analysis via runAnalysis.
 
 
-- [ ] Improve mobile display
+- [X] Improve mobile display
 
 - [ ] Make line colors (map and thermal plot) easier to map to pilot.
     - Each pilot now keeps one stable color, shared across the map and both
