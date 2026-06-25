@@ -2,7 +2,7 @@
   "comp": "chelan2026",
   "compLabel": "Chelan Ozone Open 2026",
   "day": "day3",
-  "dayLabel": "Task 3 — Jun 18",
+  "dayLabel": "Task 3 \u2014 Jun 18",
   "date": "2026-06-18",
   "taskFile": "task.xctsk",
   "igcFiles": [
@@ -133,5 +133,6 @@
     "zach_converse_2026-06-18_01.123.igc",
     "zach_converse_2026-06-18_02.123.igc",
     "zach_kiefer_2026-06-18_01.1612.igc"
-  ]
+  ],
+  "utcOffsetMinutes": -420
 }

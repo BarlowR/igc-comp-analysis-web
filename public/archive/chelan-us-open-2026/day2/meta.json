@@ -1,10 +1,10 @@
 {
   "comp": "chelan-us-open-2026",
-  "compLabel": "2026 US Open of Paragliding — Chelan",
+  "compLabel": "2026 US Open of Paragliding \u2014 Chelan",
   "day": "day2",
-  "dayLabel": "Task 2 — Jun 22",
+  "dayLabel": "Task 2 \u2014 Jun 22",
   "date": "2026-06-22",
-  "title": "Task 2 — Race to Goal, 115.8 km",
+  "title": "Task 2 \u2014 Race to Goal, 115.8 km",
   "taskFile": "task.xctsk",
   "igcFiles": [
     "albert_nazander_2026-06-22_01.24.igc",
@@ -131,5 +131,6 @@
     "william_deley_2026-06-22_01.1967.igc",
     "william_pardis_2026-06-22_01.44.igc",
     "yun_lin_2026-06-22_01.716.igc"
-  ]
+  ],
+  "utcOffsetMinutes": -420
 }

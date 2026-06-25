@@ -230,6 +230,17 @@ table.stats td.name {
   font-weight: 400;
 }
 
+/* Colour swatch before the pilot name, matching their track colour. */
+.pilot-swatch {
+  display: inline-block;
+  width: 0.7rem;
+  height: 0.7rem;
+  margin-right: 0.45rem;
+  border-radius: 2px;
+  vertical-align: middle;
+  flex: none;
+}
+
 table.stats th.sortable {
   cursor: pointer;
   user-select: none;
@@ -320,6 +331,61 @@ table.stats td.name {
   border-radius: 10px;
   overflow: hidden;
   border: 1px solid var(--border-strong);
+}
+
+/* Time scrubber under the map. */
+.time-slider {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.time-slider-play {
+  flex: none;
+  width: 2.25rem;
+  height: 2.25rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.85rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.time-slider-play:hover {
+  background: var(--accent-strong);
+}
+
+.time-slider-label {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* Altitude-vs-time plot, linked to the map's time slider. */
+.alt-plot {
+  margin-top: 0.75rem;
+}
+
+.alt-plot-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--muted);
+  margin-bottom: 0.35rem;
+}
+
+.alt-plot-canvas {
+  display: block;
+  width: 100%;
+  height: 200px;
+  border-radius: 10px;
+  border: 1px solid var(--border-strong);
+  background: #faf6ec;
+  cursor: ew-resize;
+  touch-action: none;
 }
 
 /* Archive index listing. */

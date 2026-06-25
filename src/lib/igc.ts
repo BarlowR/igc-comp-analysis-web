@@ -89,6 +89,8 @@ export class IgcFlight {
   df!: Columns;
   compDf: Columns | null = null;
   stats: Stats = {};
+  /** Epoch ms of the SSS start gate (set by buildCompMetrics). */
+  startGateMs: number | null = null;
   /** Index (in the comp window) of the fix where the pilot exited the SSS. */
   private sssExitIdx: number | null = null;
 
@@ -334,6 +336,7 @@ export class IgcFlight {
   /** Port of build_computed_comp_metrics + _track_task_progress. */
   buildCompMetrics(task: XcTask): void {
     const startMs = this.compStartMs(task);
+    this.startGateMs = startMs;
 
     // Python copies the full-flight dataframe (with all per-fix columns already
     // computed) and *filters* by time — it does NOT recompute the per-fix

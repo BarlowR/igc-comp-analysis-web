@@ -9,6 +9,7 @@ interface ArchiveEntry {
   base: string; // e.g. "/archive/chelan2026/day1"
   taskFile: string;
   igcFiles: string[];
+  utcOffsetMinutes?: number | null;
 }
 
 const $ = (id: string) => document.getElementById(id)!;
@@ -33,7 +34,13 @@ async function load(): Promise<void> {
       entry.igcFiles.map(async (name) => ({ name, text: await fetchText(`${entry.base}/${name}`) })),
     );
 
-    await runAnalysis({ taskText, igc, resultsEl: results, statusEl });
+    await runAnalysis({
+      taskText,
+      igc,
+      resultsEl: results,
+      statusEl,
+      utcOffsetMinutes: entry.utcOffsetMinutes ?? null,
+    });
   } catch (err) {
     console.error(err);
     statusEl.textContent = `Error loading archive: ${(err as Error).message}`;

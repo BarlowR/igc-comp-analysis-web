@@ -2,7 +2,7 @@
   "comp": "chelan2026",
   "compLabel": "Chelan 2026",
   "day": "day2",
-  "dayLabel": "Task 2 — Jun 17",
+  "dayLabel": "Task 2 \u2014 Jun 17",
   "date": "2026-06-17",
   "taskFile": "task.xctsk",
   "igcFiles": [
@@ -139,5 +139,6 @@
     "zach_converse_2026-06-17_01.123.igc",
     "zach_converse_2026-06-17_02.123.igc",
     "zach_kiefer_2026-06-17_01.1612.igc"
-  ]
+  ],
+  "utcOffsetMinutes": -420
 }

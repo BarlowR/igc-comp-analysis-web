@@ -14,6 +14,7 @@ interface Entry {
   notes?: string;
   taskFile: string;
   igcFiles: string[];
+  utcOffsetMinutes?: number | null;
 }
 
 export function getStaticPaths() {
@@ -23,7 +24,12 @@ export function getStaticPaths() {
 
 const { entry } = Astro.props as { entry: Entry };
 const base = `/archive/${entry.comp}/${entry.day}`;
-const clientEntry = { base, taskFile: entry.taskFile, igcFiles: entry.igcFiles };
+const clientEntry = {
+  base,
+  taskFile: entry.taskFile,
+  igcFiles: entry.igcFiles,
+  utcOffsetMinutes: entry.utcOffsetMinutes ?? null,
+};
 const heading = entry.title ?? `${entry.compLabel ?? entry.comp} — ${entry.dayLabel ?? entry.day}`;
 ---
 

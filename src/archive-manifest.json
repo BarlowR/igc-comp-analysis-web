@@ -1,11 +1,11 @@
 [
   {
     "comp": "chelan-us-open-2026",
-    "compLabel": "2026 US Open of Paragliding — Chelan",
+    "compLabel": "2026 US Open of Paragliding \u2014 Chelan",
     "day": "day1",
-    "dayLabel": "Task 1 — Jun 21",
+    "dayLabel": "Task 1 \u2014 Jun 21",
     "date": "2026-06-21",
-    "title": "Task 1 — Race to Goal, 106.8 km",
+    "title": "Task 1 \u2014 Race to Goal, 106.8 km",
     "taskFile": "task.xctsk",
     "igcFiles": [
       "albert_nazander_2026-06-21_01.24.igc",
@@ -139,15 +139,16 @@
       "william_deley_2026-06-21_01.1967.igc",
       "william_pardis_2026-06-21_01.44.igc",
       "yun_lin_2026-06-21_01.716.igc"
-    ]
+    ],
+    "utcOffsetMinutes": -420
   },
   {
     "comp": "chelan-us-open-2026",
-    "compLabel": "2026 US Open of Paragliding — Chelan",
+    "compLabel": "2026 US Open of Paragliding \u2014 Chelan",
     "day": "day2",
-    "dayLabel": "Task 2 — Jun 22",
+    "dayLabel": "Task 2 \u2014 Jun 22",
     "date": "2026-06-22",
-    "title": "Task 2 — Race to Goal, 115.8 km",
+    "title": "Task 2 \u2014 Race to Goal, 115.8 km",
     "taskFile": "task.xctsk",
     "igcFiles": [
       "albert_nazander_2026-06-22_01.24.igc",
@@ -274,15 +275,16 @@
       "william_deley_2026-06-22_01.1967.igc",
       "william_pardis_2026-06-22_01.44.igc",
       "yun_lin_2026-06-22_01.716.igc"
-    ]
+    ],
+    "utcOffsetMinutes": -420
   },
   {
     "comp": "chelan-us-open-2026",
-    "compLabel": "2026 US Open of Paragliding — Chelan",
+    "compLabel": "2026 US Open of Paragliding \u2014 Chelan",
     "day": "day3",
-    "dayLabel": "Task 3 — Jun 23",
+    "dayLabel": "Task 3 \u2014 Jun 23",
     "date": "2026-06-23",
-    "title": "Task 3 — Race to Goal, 87.1 km",
+    "title": "Task 3 \u2014 Race to Goal, 87.1 km",
     "taskFile": "task.xctsk",
     "igcFiles": [
       "albert_nazander_2026-06-23_01.24.igc",
@@ -411,13 +413,14 @@
       "william_deley_2026-06-23_01.1967.igc",
       "william_pardis_2026-06-23_01.44.igc",
       "yun_lin_2026-06-23_01.716.igc"
-    ]
+    ],
+    "utcOffsetMinutes": -420
   },
   {
     "comp": "chelan2026",
     "compLabel": "Chelan Ozone Open 2026",
     "day": "day1",
-    "dayLabel": "Task 1 — Jun 14",
+    "dayLabel": "Task 1 \u2014 Jun 14",
     "date": "2026-06-14",
     "taskFile": "task.xctsk",
     "igcFiles": [
@@ -561,13 +564,14 @@
       "yurii_skrypnyk_2026-06-14_01.80.igc",
       "zach_converse_2026-06-14_01.123.igc",
       "zach_kiefer_2026-06-14_01.1612.igc"
-    ]
+    ],
+    "utcOffsetMinutes": -420
   },
   {
     "comp": "chelan2026",
     "compLabel": "Chelan 2026",
     "day": "day2",
-    "dayLabel": "Task 2 — Jun 17",
+    "dayLabel": "Task 2 \u2014 Jun 17",
     "date": "2026-06-17",
     "taskFile": "task.xctsk",
     "igcFiles": [
@@ -704,13 +708,14 @@
       "zach_converse_2026-06-17_01.123.igc",
       "zach_converse_2026-06-17_02.123.igc",
       "zach_kiefer_2026-06-17_01.1612.igc"
-    ]
+    ],
+    "utcOffsetMinutes": -420
   },
   {
     "comp": "chelan2026",
     "compLabel": "Chelan Ozone Open 2026",
     "day": "day3",
-    "dayLabel": "Task 3 — Jun 18",
+    "dayLabel": "Task 3 \u2014 Jun 18",
     "date": "2026-06-18",
     "taskFile": "task.xctsk",
     "igcFiles": [
@@ -841,13 +846,14 @@
       "zach_converse_2026-06-18_01.123.igc",
       "zach_converse_2026-06-18_02.123.igc",
       "zach_kiefer_2026-06-18_01.1612.igc"
-    ]
+    ],
+    "utcOffsetMinutes": -420
   },
   {
     "comp": "chelan2026",
     "compLabel": "Chelan 2026",
     "day": "day4",
-    "dayLabel": "Task 4 — Jun 19",
+    "dayLabel": "Task 4 \u2014 Jun 19",
     "date": "2026-06-19",
     "taskFile": "task.xctsk",
     "igcFiles": [
@@ -983,6 +989,7 @@
       "zach_converse_2026-06-19_01.123.igc",
       "zach_converse_2026-06-19_02.123.igc",
       "zach_kiefer_2026-06-19_01.1612.igc"
-    ]
+    ],
+    "utcOffsetMinutes": -420
   }
 ]

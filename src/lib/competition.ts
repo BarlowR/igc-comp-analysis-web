@@ -5,6 +5,7 @@
 
 import { IgcFlight, type Stats } from './igc';
 import { parseXcTask, type XcTask } from './xctsk';
+import { haversine } from './math';
 
 export type GradientDir = 'least_positive' | 'most_positive' | 'most_negative' | null;
 
@@ -36,6 +37,10 @@ export interface PilotRow {
   stats: Stats;
   /** Track coordinates ([lat, lon] pairs) for the map view. */
   track: [number, number][];
+  /** Epoch-ms timestamp for each track point, aligned with `track`. */
+  trackTimes: number[];
+  /** GPS altitude (m) for each track point, aligned with `track`. */
+  trackAlt: number[];
 }
 
 export interface MapTurnpoint {
@@ -51,11 +56,17 @@ export interface MapTrack {
   pilot: string;
   completed: boolean;
   points: [number, number][];
+  /** Epoch-ms timestamp for each point, aligned with `points`. */
+  times: number[];
+  /** GPS altitude (m) for each point, aligned with `points`. */
+  alt: number[];
 }
 
 export interface MapData {
   turnpoints: MapTurnpoint[];
   tracks: MapTrack[];
+  /** Minutes to add to UTC for local task time; null = display UTC. */
+  utcOffsetMinutes: number | null;
 }
 
 export interface TableCell {
@@ -89,9 +100,12 @@ export interface ClimbData {
 export class Competition {
   task: XcTask;
   pilots: PilotRow[] = [];
+  /** Minutes to add to UTC for local task time (from archive meta); null = UTC. */
+  utcOffsetMinutes: number | null;
 
-  constructor(taskText: string) {
+  constructor(taskText: string, utcOffsetMinutes: number | null = null) {
     this.task = parseXcTask(taskText);
+    this.utcOffsetMinutes = utcOffsetMinutes;
   }
 
   /** Parse an IGC file, compute competition metrics, and register the pilot. */
@@ -102,7 +116,11 @@ export class Competition {
       name: flight.pilotName,
       completed: flight.stats.completed === true,
       stats: { ...flight.stats, name: flight.pilotName as unknown as number },
-      track: downsample(flight.df.lat, flight.df.lon),
+      // Crop the displayed track to [start gate − 15 min, end] so the map and
+      // altitude plot aren't dominated by ground time: end at the goal crossing
+      // if the pilot reached goal, otherwise at landing (last fix). Stats are
+      // unaffected — they still run over the full flight above.
+      ...cropAndDownsample(flight, this.task),
     };
     this.pilots.push(row);
     return row;
@@ -122,9 +140,9 @@ export class Competition {
 
     const tracks: MapTrack[] = this.pilots
       .filter((p) => p.track.length > 0)
-      .map((p) => ({ pilot: p.name, completed: p.completed, points: p.track }));
+      .map((p) => ({ pilot: p.name, completed: p.completed, points: p.track, times: p.trackTimes, alt: p.trackAlt }));
 
-    return { turnpoints, tracks };
+    return { turnpoints, tracks, utcOffsetMinutes: this.utcOffsetMinutes };
   }
 
   // ---- stats table -------------------------------------------------------
@@ -185,23 +203,97 @@ function num(v: unknown): number {
   return typeof v === 'number' ? v : Number(v);
 }
 
+const PRE_START_MS = 15 * 60 * 1000; // show 15 min before the start gate
+
 /**
- * Thin a track down to at most ~maxPoints [lat, lon] pairs for lightweight map
- * rendering, always keeping the first and last fix.
+ * First time (epoch ms) at/after `fromMs` that the flight enters the goal — the
+ * task's final turnpoint cylinder — or null if it never does. The flight's
+ * `completed` flag only reaches ESS (the second-to-last turnpoint), so this
+ * walks the final glide on to the goal.
  */
-function downsample(lat: number[], lon: number[], maxPoints = 1500): [number, number][] {
+function goalCrossingMs(flight: IgcFlight, task: XcTask, fromMs: number): number | null {
+  const goal = task.turnpoints[task.turnpoints.length - 1];
+  if (!goal) return null;
+  const { lat, lon, timeMs } = flight.df;
+  for (let i = timeMs.findIndex((t) => t >= fromMs); i >= 0 && i < timeMs.length; i++) {
+    if (haversine(lat[i], lon[i], goal.lat, goal.lon) <= goal.radius) return timeMs[i];
+  }
+  return null;
+}
+
+/**
+ * Crop a flight's display track to [start gate − 15 min, end] and thin it.
+ * `end` is the goal-crossing time when the pilot reached the final goal
+ * cylinder, else the last fix (landing). Falls back to the full track if timing
+ * is unavailable.
+ */
+function cropAndDownsample(
+  flight: IgcFlight,
+  task: XcTask,
+): { track: [number, number][]; trackTimes: number[]; trackAlt: number[] } {
+  const { lat, lon, timeMs, gnssAlt } = flight.df;
+  const n = timeMs.length;
+
+  const gate = flight.startGateMs;
+  // The flight completes the scored task at ESS; from there, follow the glide
+  // into the goal cylinder. End at the goal crossing if reached, else landing.
+  const essMs =
+    flight.stats.completed === true && flight.compDf?.timeMs.length
+      ? flight.compDf.timeMs[flight.compDf.timeMs.length - 1]
+      : null;
+  const goalMs = essMs !== null ? goalCrossingMs(flight, task, essMs) : null;
+  const endMs = goalMs ?? timeMs[n - 1];
+
+  // Drop pilots whose flight ended before the start — they flew and landed
+  // before the task began, so they'd only clutter the plots.
+  if (gate !== null && endMs < gate) return { track: [], trackTimes: [], trackAlt: [] };
+
+  let s = 0;
+  if (gate !== null) {
+    const startMs = gate - PRE_START_MS;
+    const found = timeMs.findIndex((t) => t >= startMs);
+    s = found === -1 ? 0 : found;
+  }
+  let e = n - 1;
+  while (e > s && timeMs[e] > endMs) e--;
+  if (e <= s) {
+    s = 0;
+    e = n - 1;
+  }
+
+  const crop = <T>(a: T[]): T[] => a.slice(s, e + 1);
+  return downsample(crop(lat), crop(lon), crop(timeMs), crop(gnssAlt));
+}
+
+/**
+ * Thin a track down to at most ~maxPoints fixes for lightweight map rendering,
+ * always keeping the first and last fix. Returns [lat, lon] pairs and their
+ * epoch-ms timestamps in lockstep so the time slider can scrub by position.
+ */
+function downsample(
+  lat: number[],
+  lon: number[],
+  timeMs: number[],
+  alt: number[],
+  maxPoints = 1500,
+): { track: [number, number][]; trackTimes: number[]; trackAlt: number[] } {
   const n = Math.min(lat.length, lon.length);
-  if (n === 0) return [];
+  const track: [number, number][] = [];
+  const trackTimes: number[] = [];
+  const trackAlt: number[] = [];
+  if (n === 0) return { track, trackTimes, trackAlt };
   const step = Math.max(1, Math.ceil(n / maxPoints));
-  const out: [number, number][] = [];
-  for (let i = 0; i < n; i += step) {
-    if (Number.isFinite(lat[i]) && Number.isFinite(lon[i])) out.push([lat[i], lon[i]]);
-  }
+  const push = (i: number): void => {
+    if (Number.isFinite(lat[i]) && Number.isFinite(lon[i])) {
+      track.push([lat[i], lon[i]]);
+      trackTimes.push(timeMs[i]);
+      trackAlt.push(alt[i]);
+    }
+  };
+  for (let i = 0; i < n; i += step) push(i);
   const last = n - 1;
-  if (last % step !== 0 && Number.isFinite(lat[last]) && Number.isFinite(lon[last])) {
-    out.push([lat[last], lon[last]]);
-  }
-  return out;
+  if (last % step !== 0) push(last);
+  return { track, trackTimes, trackAlt };
 }
 
 /**

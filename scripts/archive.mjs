@@ -5,7 +5,10 @@
  *   npm run archive -- --comp chelan2026 --day day1 \
  *     --task path/to.xctsk --igc 'path/to/*.igc' \
  *     [--comp-label "Chelan Ozone Open 2026"] [--day-label "Day 1 — Fri"] \
- *     [--date 2026-06-19] [--title "..."] [--notes "..."]
+ *     [--date 2026-06-19] [--title "..."] [--notes "..."] [--utc-offset -420]
+ *
+ * --utc-offset is minutes to add to UTC for the comp's local time (airscore's
+ * time_offset, e.g. "-7:00:00" -> -420). Used only to display task-local time.
  *
  * Copies the task + tracklogs into public/archive/<comp>/<day>/, writes a
  * meta.json, and rebuilds src/archive-manifest.json. --igc may be repeated and
@@ -87,6 +90,7 @@ const meta = {
   ...(args.date ? { date: args.date } : {}),
   ...(args.title ? { title: args.title } : {}),
   ...(args.notes ? { notes: args.notes } : {}),
+  ...(args['utc-offset'] !== undefined ? { utcOffsetMinutes: Number(args['utc-offset']) } : {}),
   taskFile: 'task.xctsk',
   igcFiles,
 };
