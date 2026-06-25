@@ -1,4 +1,11 @@
-- [ ] Move archive analysis to CLI runtime and only save results for later display. Loading all IGC files from a large comp takes a long time
+- [x] Move archive analysis to build time and only save results for later display
+    - Archived days now precompute {table, climb, map} once at build via the
+      endpoint src/pages/archive/[comp]/[day].json.ts (reads the on-disk
+      IGC/task files). The client fetches that JSON and renders directly —
+      no IGC download, no client-side analysis. Day 2 went from ~60 MB of
+      IGCs + full re-analysis to a ~2 MB-gzipped results.json. The IGC/xctsk
+      files stay in the archive dir (read only at build). Upload page still
+      runs the live client-side analysis via runAnalysis.
 
 
 - [ ] Improve mobile display

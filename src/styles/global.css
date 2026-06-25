@@ -196,6 +196,41 @@ button#analyze-btn:disabled {
   font-size: 0.9rem;
 }
 
+/* Download progress bar shown while an archived day's results JSON loads. */
+.progress {
+  margin-top: 0.6rem;
+  height: 8px;
+  width: 100%;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.progress-bar {
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  border-radius: 999px;
+  transition: width 0.15s ease;
+}
+
+/* Indeterminate: a sliding chunk when the total size is unknown. */
+.progress-bar.indeterminate {
+  width: 35%;
+  transition: none;
+  animation: progress-slide 1.1s ease-in-out infinite;
+}
+
+@keyframes progress-slide {
+  from {
+    margin-left: -35%;
+  }
+  to {
+    margin-left: 100%;
+  }
+}
+
 .table-wrap {
   overflow-x: auto;
 }

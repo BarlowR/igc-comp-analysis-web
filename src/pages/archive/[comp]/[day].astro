@@ -1,6 +1,7 @@
 ---
-// Archived analysis viewer: re-runs the in-browser analysis on the stored
-// task + IGC files. One static route per manifest entry.
+// Archived analysis viewer: loads the precomputed results JSON (built by
+// [day].json.ts from the stored task + IGC files) and renders it client-side.
+// One static route per manifest entry.
 import Base from '../../../layouts/Base.astro';
 import manifest from '../../../archive-manifest.json';
 
@@ -12,9 +13,6 @@ interface Entry {
   date?: string;
   title?: string;
   notes?: string;
-  taskFile: string;
-  igcFiles: string[];
-  utcOffsetMinutes?: number | null;
 }
 
 export function getStaticPaths() {
@@ -24,12 +22,7 @@ export function getStaticPaths() {
 
 const { entry } = Astro.props as { entry: Entry };
 const base = `/archive/${entry.comp}/${entry.day}`;
-const clientEntry = {
-  base,
-  taskFile: entry.taskFile,
-  igcFiles: entry.igcFiles,
-  utcOffsetMinutes: entry.utcOffsetMinutes ?? null,
-};
+const clientEntry = { base };
 const heading = entry.title ?? `${entry.compLabel ?? entry.comp} — ${entry.dayLabel ?? entry.day}`;
 ---
 

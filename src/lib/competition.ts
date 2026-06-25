@@ -5,6 +5,18 @@
 
 import { IgcFlight, type Stats } from './igc';
 import { parseXcTask, type XcTask } from './xctsk';
+
+/** Derive a readable fallback pilot name from an IGC filename. */
+export function nameFromFile(filename: string): string {
+  return (
+    filename
+      .replace(/\.igc$/i, '')
+      .replace(/_\d{4}-\d{2}-\d{2}.*$/, '') // strip trailing date/id segment
+      .replace(/_/g, ' ')
+      .replace(/\b\w/g, (c) => c.toUpperCase())
+      .trim() || filename
+  );
+}
 import { haversine } from './math';
 
 export type GradientDir = 'least_positive' | 'most_positive' | 'most_negative' | null;

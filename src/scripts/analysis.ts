@@ -20,11 +20,22 @@ import {
   Competition,
   CLIMB_RATE_TICKS,
   gradientColor,
+  nameFromFile,
   type StatsTable,
   type ClimbData,
   type ClimbSeries,
   type MapData,
 } from '../lib/competition';
+
+// Re-export for callers that import it from here.
+export { nameFromFile };
+
+/** Precomputed analysis results for one archived day (built server-side). */
+export interface ArchivedResults {
+  table: StatsTable;
+  climb: ClimbData;
+  map: MapData;
+}
 
 Chart.register(LineController, LineElement, PointElement, LinearScale, Tooltip, Legend);
 
@@ -62,14 +73,19 @@ function buildPilotColors(names: string[]): Map<string, string> {
 let charts: Chart[] = [];
 let map: L.Map | null = null;
 
-/** Derive a readable fallback pilot name from an IGC filename. */
-export function nameFromFile(filename: string): string {
-  return filename
-    .replace(/\.igc$/i, '')
-    .replace(/_\d{4}-\d{2}-\d{2}.*$/, '') // strip trailing date/id segment
-    .replace(/_/g, ' ')
-    .replace(/\b\w/g, (c) => c.toUpperCase())
-    .trim() || filename;
+/**
+ * Render precomputed (server-built) results for an archived day. No IGC parsing
+ * or analysis happens on the client — it just draws the stored table/climb/map.
+ */
+export function renderArchivedResults(opts: {
+  results: ArchivedResults;
+  resultsEl: HTMLElement;
+  statusEl?: HTMLElement;
+}): void {
+  const { results, resultsEl, statusEl } = opts;
+  const n = results.table.completed.length + results.table.incomplete.length;
+  if (statusEl) statusEl.textContent = `Loaded ${n} pilot${n === 1 ? '' : 's'}.`;
+  render(resultsEl, statusEl, results.table, results.climb, results.map);
 }
 
 /**
@@ -1127,7 +1143,7 @@ const avgLinePlugin: Plugin<'line'> = {
       if (!(ds as ClimbDataset).selected) return;
       if (!chart.isDatasetVisible(i)) return;
       const avg = (ds as ClimbDataset).avgClimbRate;
-      if (avg === undefined || Number.isNaN(avg)) return;
+      if (avg == null || !Number.isFinite(avg)) return; // null after JSON round-trip
       const x = scales.x.getPixelForValue(avg);
       if (x < chartArea.left || x > chartArea.right) return;
       const color = ds.borderColor as string;
