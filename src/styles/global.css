@@ -129,8 +129,7 @@ main {
   font-size: 0.95rem;
 }
 
-.field-label code,
-footer code {
+.field-label code {
   background: rgba(112, 90, 144, 0.12);
   color: var(--accent);
   padding: 0.05rem 0.35rem;
@@ -471,13 +470,4 @@ table.stats td.name {
 
 .archive-empty {
   color: var(--muted);
-}
-
-footer {
-  max-width: 1100px;
-  margin: 0 auto;
-  padding: 1rem 1.5rem 3rem;
-  color: var(--muted);
-  font-size: 0.85rem;
-  text-align: center;
 }

@@ -1,5 +1,5 @@
 ---
-// Shared page shell: head, fonts, global styles, top nav, and footer.
+// Shared page shell: head, fonts, global styles, and top nav.
 import '../styles/global.css';
 
 interface Props {
@@ -37,9 +37,5 @@ const isArchive = path.startsWith('/archive');
     </nav>
 
     <slot />
-
-    <footer>
-      <p>Ported from the <code>comp_analysis</code> Python tooling.</p>
-    </footer>
   </body>
 </html>

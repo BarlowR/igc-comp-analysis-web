@@ -53,6 +53,8 @@ export interface PilotRow {
   trackTimes: number[];
   /** GPS altitude (m) for each track point, aligned with `track`. */
   trackAlt: number[];
+  /** Epoch-ms of the SSS start gate for this flight. */
+  startGateMs: number | null;
 }
 
 export interface MapTurnpoint {
@@ -79,6 +81,8 @@ export interface MapData {
   tracks: MapTrack[];
   /** Minutes to add to UTC for local task time; null = display UTC. */
   utcOffsetMinutes: number | null;
+  /** Epoch-ms of the SSS start gate (for the start-time marker); null if unknown. */
+  startMs: number | null;
 }
 
 export interface TableCell {
@@ -128,6 +132,7 @@ export class Competition {
       name: flight.pilotName,
       completed: flight.stats.completed === true,
       stats: { ...flight.stats, name: flight.pilotName as unknown as number },
+      startGateMs: flight.startGateMs,
       // Crop the displayed track to [start gate − 15 min, end] so the map and
       // altitude plot aren't dominated by ground time: end at the goal crossing
       // if the pilot reached goal, otherwise at landing (last fix). Stats are
@@ -154,7 +159,10 @@ export class Competition {
       .filter((p) => p.track.length > 0)
       .map((p) => ({ pilot: p.name, completed: p.completed, points: p.track, times: p.trackTimes, alt: p.trackAlt }));
 
-    return { turnpoints, tracks, utcOffsetMinutes: this.utcOffsetMinutes };
+    // All pilots share the same gate time-of-day; take the first finite one.
+    const startMs = this.pilots.find((p) => p.startGateMs != null)?.startGateMs ?? null;
+
+    return { turnpoints, tracks, utcOffsetMinutes: this.utcOffsetMinutes, startMs };
   }
 
   // ---- stats table -------------------------------------------------------

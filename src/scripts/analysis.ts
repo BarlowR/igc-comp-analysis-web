@@ -742,6 +742,20 @@ function createAltitudePlot(
       if (tr.points.length < 2) continue;
       strokePath(bc, fullProfile(tr));
     }
+    // Vertical marker at the task start gate (green, matching the SSS cylinder).
+    if (data.startMs != null && data.startMs >= tMin && data.startMs <= tMax) {
+      const sx = xOf(data.startMs);
+      bc.strokeStyle = '#2e7d32';
+      bc.lineWidth = 1.5;
+      bc.setLineDash([4, 3]);
+      strokePath(bc, [[sx, PAD.t], [sx, PAD.t + plotH]]);
+      bc.setLineDash([]);
+      bc.fillStyle = '#2e7d32';
+      bc.font = '10px system-ui, sans-serif';
+      bc.textAlign = 'left';
+      bc.textBaseline = 'top';
+      bc.fillText('Start', sx + 3, PAD.t + 2);
+    }
     base = b;
   };
 
