@@ -8,7 +8,8 @@
     "build": "astro build",
     "preview": "astro preview",
     "astro": "astro",
-    "archive": "node scripts/archive.mjs"
+    "archive": "node scripts/archive.mjs",
+    "airscore": "node scripts/airscore-pull.mjs"
   },
   "dependencies": {
     "astro": "^5.0.0",
