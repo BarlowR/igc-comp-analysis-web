@@ -1159,7 +1159,7 @@ function timeLossRow(
 
     const ctxHead = document.createElement('div');
     ctxHead.className = 'tl-context-head';
-    ctxHead.textContent = 'Reference (Relative to winner)';
+    ctxHead.textContent = `Reference (Relative to ${refLabel})`;
     ctx.appendChild(ctxHead);
 
     const ctxGrid = document.createElement('div');
