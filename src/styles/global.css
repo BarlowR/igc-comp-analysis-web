@@ -232,6 +232,9 @@ button#analyze-btn:disabled {
 
 .table-wrap {
   overflow-x: auto;
+  /* Query container so the time-loss panel can size itself to this scroll
+     viewport (= the card's inner width) rather than the wide scrolling table. */
+  container-type: inline-size;
 }
 
 table.stats {
@@ -313,6 +316,265 @@ table.stats tbody tr.pinned td.name::before {
   content: '📌';
   margin-right: 6px;
   font-size: 0.85em;
+}
+
+/* Time-loss breakdown, opened beneath the pinned pilot's row: where their gap
+   to the winner was spent, as bars diverging from a centre line. */
+table.stats tbody tr.time-loss td {
+  background: var(--panel-2);
+  box-shadow: inset 3px 0 0 var(--accent-strong);
+  padding: 0;
+  text-align: left;
+  white-space: normal;
+}
+
+/* The cell is as wide as the whole scrolling table. The panel is sized to the
+   scroll viewport instead (100cqw = .table-wrap's inner width = the bounding
+   card's content width) and stuck to its left edge, so it matches the visible
+   "Completed Task" container and stays on screen at any horizontal scroll
+   offset. */
+.tl-panel {
+  position: sticky;
+  left: 0;
+  width: 100cqw;
+  padding: 12px 16px 10px;
+}
+
+.tl-head {
+  font-weight: 700;
+  margin-bottom: 10px;
+}
+
+.tl-grid {
+  display: grid;
+  /* label | time value | time bar | height value | height bar
+     The label track wraps to a new line when the panel is tight (min-content)
+     rather than forcing every phase title onto one line, freeing width for the
+     bars as the layout narrows toward the mobile breakpoint. */
+  grid-template-columns: minmax(min-content, max-content) max-content minmax(90px, 1fr) max-content minmax(90px, 1fr);
+  align-items: center;
+  column-gap: 10px;
+  /* No row gap: cells touch, so the group divider (tl-div) and the totals rule
+     (tl-rule) render as continuous lines instead of dashes. Row spacing comes
+     from per-cell vertical padding instead. */
+  row-gap: 0;
+}
+
+.tl-grid > * {
+  padding-block: 4px;
+}
+
+/* Vertical rule between the time group and the height group, carried on the
+   left edge of the height column's cells (header, each value, and the total).
+   With row-gap: 0 these edges stack into one unbroken line. */
+.tl-div {
+  border-left: 1px solid var(--border);
+  padding-left: 12px;
+}
+
+/* Headers sit over each bar/value pair rather than a single column. */
+.tl-colhead {
+  color: var(--muted);
+  font-size: 0.78em;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.tl-colhead.tl-span {
+  grid-column: span 2;
+  text-align: center;
+}
+
+/* Height reads as supporting context for the time gap, so it stays muted and
+   uncoloured — no win/lose semantics. */
+.tl-alt {
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  min-width: 4.5em;
+  text-align: right;
+}
+
+.tl-label {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+/* Zero-centred track: a hairline marks the centre, bars grow out from it. */
+.tl-track {
+  position: relative;
+  height: 14px;
+  background: rgba(20, 12, 12, 0.06);
+  border-radius: 2px;
+}
+
+.tl-track::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: -1px;
+  bottom: -1px;
+  border-left: 1px solid var(--border);
+}
+
+.tl-bar {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  border-radius: 2px;
+}
+
+/* Diverging polarity pair (validated warm/cool, CVD-safe against the panel):
+   rust = slower / time lost to the winner, teal = faster / time gained.
+   Direction is also carried by which side of centre the bar sits, so the pair
+   never relies on hue alone. */
+.tl-bar.loss {
+  background: #b5532e;
+}
+
+.tl-bar.gain {
+  background: #10805f;
+}
+
+/* Single neutral fill in both directions: height is context for the time gap,
+   not a second win/lose axis. */
+.tl-bar.alt {
+  background: var(--accent);
+  opacity: 0.55;
+}
+
+.tl-val {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  min-width: 4.5em;
+  text-align: right;
+}
+
+/* One full-width rule above the totals — a single element spanning every
+   column, so the underline is continuous rather than five bordered cells split
+   by the column gaps. */
+.tl-rule {
+  grid-column: 1 / -1;
+  height: 0;
+  padding-block: 0;
+  margin-top: 4px;
+  border-top: 1px solid var(--border);
+}
+
+/* Totals row: both columns close on it, so it carries full weight. */
+.tl-total {
+  padding-top: 6px;
+  font-weight: 700;
+}
+
+.tl-total.tl-alt,
+.tl-total-label {
+  color: var(--text);
+}
+
+.tl-foot {
+  margin-top: 9px;
+  color: var(--muted);
+  font-size: 0.85em;
+}
+
+/* Reference block: descriptive metrics that don't feed the additive totals.
+   Deliberately plain — no bars, no rust/teal — so it reads as context. */
+.tl-context {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.tl-context-head {
+  color: var(--muted);
+  font-size: 0.78em;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 6px;
+}
+
+.tl-context-grid {
+  display: grid;
+  /* Label track wraps when tight (min-content), same as the decomposition grid. */
+  grid-template-columns: minmax(min-content, max-content) max-content minmax(70px, 120px) max-content;
+  align-items: center;
+  gap: 3px 12px;
+}
+
+.tl-context-label {
+  color: var(--muted);
+}
+
+.tl-context-val {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  text-align: right;
+}
+
+/* Field-relative magnitude bar, sized to the same zero-centred track as the
+   decomposition rows above. */
+.tl-context-track {
+  align-self: center;
+}
+
+.tl-context-vs {
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  font-size: 0.85em;
+}
+
+@media (max-width: 620px) {
+  /* Match the decomposition table: label, delta, then the actual value — no bar. */
+  .tl-context-grid {
+    grid-template-columns: minmax(0, 1fr) max-content max-content;
+    gap: 4px 12px;
+  }
+
+  .tl-context-track {
+    display: none;
+  }
+}
+
+@media (max-width: 620px) {
+  /* Bars don't fit on a phone, so drop them and show a compact table: the phase
+     label on the left, then its time and height values as two right-aligned
+     columns. */
+  .tl-grid {
+    grid-template-columns: minmax(0, 1fr) max-content max-content;
+    column-gap: 14px;
+  }
+
+  /* Remove the bars (and the empty bar placeholders in the totals row) from the
+     grid so the three text columns line up cleanly. */
+  .tl-track {
+    display: none;
+  }
+
+  .tl-total:empty {
+    display: none;
+  }
+
+  /* Each header now sits over a single value column instead of a value+bar
+     pair, right-aligned to match the numbers beneath it. */
+  .tl-colhead.tl-span {
+    grid-column: span 1;
+    text-align: right;
+  }
+
+  /* Phase titles stay inline in the first column and wrap there if long. */
+  .tl-label {
+    text-align: left;
+  }
+
+  /* No vertical rule between the two value columns — just the column gap. */
+  .tl-div {
+    border-left: 0;
+    padding-left: 0;
+  }
+
+  .tl-panel {
+    padding: 10px 12px;
+  }
 }
 
 /* Collapsible header row for the deselected-pilots section. */

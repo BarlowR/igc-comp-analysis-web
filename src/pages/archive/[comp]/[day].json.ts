@@ -44,6 +44,7 @@ export const GET: APIRoute = ({ props }) => {
     table: comp.buildStatsTable(),
     climb: comp.buildClimbData(),
     map: comp.buildMapData(),
+    timeLoss: comp.buildTimeLoss(),
   });
   return new Response(body, { headers: { 'content-type': 'application/json' } });
 };

@@ -449,6 +449,8 @@ export class IgcFlight {
       'percentage_time_sinking_on_glide_s', 'seconds_maintaining',
       'seconds_>5ms_climb', 'altitude_gain_total', 'altitude_>5ms_climb',
       'percentage_time_>5ms_climb', 'average_climb_rate',
+      'secs_thermal_gain', 'secs_thermal_flat', 'secs_glide_gain', 'secs_glide_sink',
+      'alt_thermal_gain', 'alt_thermal_flat', 'alt_glide_gain', 'alt_glide_sink',
     ];
     for (const k of keys) s[p + k] = 0;
     for (let cr = 1; cr <= 5; cr++) {
@@ -461,6 +463,7 @@ export class IgcFlight {
     if (n === 0) {
       s.completed = false;
       s.completion_time = null;
+      s.comp_finish_msl = null;
       return;
     }
 
@@ -482,6 +485,39 @@ export class IgcFlight {
     const sinkingOnGlide = last(c.sinkingOnGlideS);
     s[`${p}total_time_sinking_on_glide_s`] = sinkingOnGlide;
     s[`${p}percentage_time_sinking_on_glide_s`] = (sinkingOnGlide * 100) / totalGliding;
+
+    // Time-loss decomposition basis, measured from the pilot's SSS exit rather
+    // than from gate open, so it excludes the pre-start loiter that
+    // `comp_seconds_after_gate` already accounts for. Together the two make
+    // `completion_time` split exactly:
+    //   completion_time = seconds_after_gate + sum(the four state seconds)
+    // The `*_S` columns above are *fix counts* (cumsumBool) and only equal
+    // seconds at 1 Hz; these sum real second-deltas, so the identity holds at
+    // any log rate.
+    const from = this.sssExitIdx ?? 0;
+    const stateSum = (src: number[], mask: boolean[]): number => {
+      let acc = 0;
+      for (let i = from + 1; i < n; i++) {
+        if (mask[i] && !Number.isNaN(src[i])) acc += src[i];
+      }
+      return acc;
+    };
+    const secs = c.secondsDelta[1];
+    s[`${p}secs_thermal_gain`] = stateSum(secs, c.stoppedAndClimbing);
+    s[`${p}secs_thermal_flat`] = stateSum(secs, c.stoppedAndNotClimbing);
+    s[`${p}secs_glide_gain`] = stateSum(secs, c.climbingOnGlide);
+    s[`${p}secs_glide_sink`] = stateSum(secs, c.sinkingOnGlide);
+
+    // Height counterpart to the four state times, on the same window and the
+    // same partition, so these sum to the net height change from SSS exit to
+    // goal. Signed per-fix altitude deltas — deliberately NOT the smoothed,
+    // positive-only `altGain` used by `*_meters_climbed` above, which discards
+    // the losses that make the sink states meaningful.
+    const alt = c.altDelta[1];
+    s[`${p}alt_thermal_gain`] = stateSum(alt, c.stoppedAndClimbing);
+    s[`${p}alt_thermal_flat`] = stateSum(alt, c.stoppedAndNotClimbing);
+    s[`${p}alt_glide_gain`] = stateSum(alt, c.climbingOnGlide);
+    s[`${p}alt_glide_sink`] = stateSum(alt, c.sinkingOnGlide);
 
     s[`${p}seconds_maintaining`] = count(v5, (v) => v > -0.5 && v < 0.5);
     const secGt5 = count(v5, (v) => v >= 5.5);
@@ -511,6 +547,9 @@ export class IgcFlight {
     s.completion_time = completed
       ? (c.timeMs[completedIdx] - c.timeMs[0]) / 1000
       : null;
+    // Height at the finish (ESS crossing). Only meaningful for a completed
+    // task, so non-completers get null rather than their landing altitude.
+    s.comp_finish_msl = completed ? c.gnssAlt[completedIdx] : null;
   }
 }
 

@@ -26,6 +26,8 @@ import {
   type ClimbData,
   type ClimbSeries,
   type MapData,
+  type TimeLossData,
+  type TimeLossRow,
 } from '../lib/competition';
 
 // Re-export for callers that import it from here.
@@ -36,6 +38,7 @@ export interface ArchivedResults {
   table: StatsTable;
   climb: ClimbData;
   map: MapData;
+  timeLoss: TimeLossData;
 }
 
 Chart.register(LineController, LineElement, PointElement, LinearScale, Tooltip, Legend);
@@ -86,7 +89,7 @@ export function renderArchivedResults(opts: {
   const { results, resultsEl, statusEl } = opts;
   const n = results.table.completed.length + results.table.incomplete.length;
   if (statusEl) statusEl.textContent = `Loaded ${n} pilot${n === 1 ? '' : 's'}.`;
-  render(resultsEl, statusEl, results.table, results.climb, results.map);
+  render(resultsEl, statusEl, results.table, results.climb, results.map, results.timeLoss);
 }
 
 /**
@@ -120,7 +123,14 @@ export async function runAnalysis(opts: {
   }
 
   setStatus(`Loaded ${comp.pilots.length} pilot${comp.pilots.length === 1 ? '' : 's'}.`);
-  render(resultsEl, statusEl, comp.buildStatsTable(), comp.buildClimbData(), comp.buildMapData());
+  render(
+    resultsEl,
+    statusEl,
+    comp.buildStatsTable(),
+    comp.buildClimbData(),
+    comp.buildMapData(),
+    comp.buildTimeLoss(),
+  );
 }
 
 /**
@@ -202,6 +212,7 @@ function render(
   table: StatsTable,
   climb: ClimbData,
   mapData: MapData,
+  timeLoss: TimeLossData,
 ): void {
   for (const c of charts) c.destroy();
   charts = [];
@@ -240,13 +251,13 @@ function render(
   const colors = buildPilotColors(ordered);
 
   if (table.completed.length || climb.completed.length) {
-    resultsEl.appendChild(group('Completed Task', table, table.completed, true, climb.completed, sel, colors));
+    resultsEl.appendChild(group('Completed Task', table, table.completed, true, climb.completed, sel, colors, timeLoss));
   }
   if (mapData.turnpoints.length || mapData.tracks.length) {
     resultsEl.appendChild(mapSection(mapData, sel, colors));
   }
   if (table.incomplete.length || climb.incomplete.length) {
-    resultsEl.appendChild(group('Did Not Complete Task', table, table.incomplete, false, climb.incomplete, sel, colors));
+    resultsEl.appendChild(group('Did Not Complete Task', table, table.incomplete, false, climb.incomplete, sel, colors, timeLoss));
   }
   resultsEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
@@ -880,6 +891,7 @@ function group(
   series: ClimbSeries[],
   sel: Selection,
   colors: Map<string, string>,
+  timeLoss: TimeLossData,
 ): HTMLElement {
   const card = document.createElement('section');
   card.className = 'card';
@@ -888,7 +900,7 @@ function group(
   card.append(h);
 
   if (rows.length) {
-    const tbl = tableEl(table, rows, gradient, sel, colors);
+    const tbl = tableEl(table, rows, gradient, sel, colors, timeLoss);
     sel.subscribe(tbl.rerender);
     card.appendChild(tbl.el);
   }
@@ -933,12 +945,269 @@ function group(
   return card;
 }
 
+/** Signed mm:ss (or h:mm:ss), e.g. "+2:52", "−41s", "0". */
+function signedTime(s: number): string {
+  const r = Math.round(s);
+  if (r === 0) return '0';
+  const sign = r < 0 ? '−' : '+';
+  const a = Math.abs(r);
+  if (a < 60) return `${sign}${a}s`;
+  const h = Math.floor(a / 3600);
+  const m = Math.floor((a % 3600) / 60);
+  const sec = a % 60;
+  return h > 0
+    ? `${sign}${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
+    : `${sign}${m}:${String(sec).padStart(2, '0')}`;
+}
+
+/**
+ * The breakdown row shown under a pinned pilot: where their gap to the winner
+ * was spent. Each component is a bar on a shared zero-centred scale — right of
+ * centre (rust) is time lost to the winner in that phase, left (teal) is time
+ * gained. The four components sum to the total by construction.
+ */
+function timeLossRow(
+  loss: TimeLossRow,
+  winner: string,
+  span: number,
+  contextScale: TimeLossData['contextScale'],
+  topCount: number,
+): HTMLElement {
+  // The winner is measured against the field average rather than themselves, so
+  // the reference name changes throughout their row.
+  const refLabel = loss.referenceIsAvg ? `the top-${topCount} average` : 'the winner';
+  const COMPONENTS: {
+    key: keyof TimeLossRow;
+    altKey: keyof TimeLossRow;
+    label: string;
+    hint: string;
+  }[] = [
+    {
+      key: 'start',
+      altKey: 'altStart',
+      label: 'Start',
+      hint: `crossing the start line later than ${refLabel}, and how high you crossed`,
+    },
+    {
+      key: 'glide',
+      altKey: 'altGlide',
+      label: 'Gliding',
+      hint: 'time spent moving forward on glide; the height is net metres gained or lost cruising (lift found minus sink hit)',
+    },
+    {
+      key: 'thermalGain',
+      altKey: 'altThermalGain',
+      label: 'Climbing',
+      hint: 'time spent thermalling while gaining, and the height it bought',
+    },
+    {
+      key: 'thermalFlat',
+      altKey: 'altThermalFlat',
+      label: 'Stopped and not climbing',
+      hint: 'zeros, sink, and re-centring',
+    },
+  ];
+
+  const tr = document.createElement('tr');
+  tr.className = 'time-loss';
+  const td = document.createElement('td');
+  td.colSpan = span;
+
+  // The cell spans every column, so it is as wide as the full (scrolling)
+  // table. Content lives in a narrow panel pinned to the left edge of the
+  // scroll container, so the bars stay a readable width and stay on screen
+  // however far the stats columns are scrolled.
+  const panel = document.createElement('div');
+  panel.className = 'tl-panel';
+  td.appendChild(panel);
+
+  const head = document.createElement('div');
+  head.className = 'tl-head';
+  head.textContent = loss.referenceIsAvg
+    ? topCount > 1
+      ? `${loss.pilot}: ${signedTime(loss.total)} vs the top-${topCount} average.`
+      : `${loss.pilot} every pilot below is measured against this flight.`
+    : `${loss.pilot} finished ${signedTime(loss.total)} vs ${winner} (winner)`;
+  panel.appendChild(head);
+
+  // Bars are scaled to the pilot's own largest component so small gaps stay
+  // legible; the shared scale keeps the five comparable to each other.
+  const scale = Math.max(...COMPONENTS.map((c) => Math.abs(loss[c.key] as number)), 1);
+
+  const grid = document.createElement('div');
+  grid.className = 'tl-grid';
+
+  // Height gets its own scale — different unit, and it must not be read as a
+  // fraction of the time gap.
+  const altScale = Math.max(
+    ...COMPONENTS.map((c) => Math.abs(loss[c.altKey] as number)).filter(Number.isFinite),
+    1,
+  );
+
+  const hcell = (text: string, cls: string): HTMLElement => {
+    const d = document.createElement('div');
+    d.className = `tl-colhead ${cls}`;
+    d.textContent = text;
+    return d;
+  };
+  // Spacer over the label column, then one header spanning each value+bar pair
+  // (tl-span sets grid-column: span 2). The height header also opens the group
+  // divider (tl-div = the vertical rule between the time and height columns).
+  grid.append(hcell('', ''), hcell('time', 'tl-span'), hcell('height', 'tl-span tl-div'));
+
+  /** A zero-centred bar: half the track each side of centre. */
+  const barTrack = (v: number, max: number, cls: string): HTMLElement => {
+    const track = document.createElement('div');
+    track.className = 'tl-track';
+    if (!Number.isFinite(v)) return track;
+    const bar = document.createElement('div');
+    bar.className = cls;
+    bar.style.width = `${(Math.abs(v) / max) * 50}%`;
+    bar.style[v < 0 ? 'right' : 'left'] = '50%';
+    track.appendChild(bar);
+    return track;
+  };
+
+  for (const c of COMPONENTS) {
+    const v = loss[c.key] as number;
+    const a = loss[c.altKey] as number;
+
+    const label = document.createElement('div');
+    label.className = 'tl-label';
+    label.textContent = c.label;
+    label.title = c.hint;
+
+    const val = document.createElement('div');
+    val.className = 'tl-val';
+    val.textContent = signedTime(v);
+
+    // Height bars stay a single neutral colour in both directions: more height
+    // in a phase is not reliably better (it can mean you needed the climb), so
+    // only the time bars carry the rust/teal (slower/faster) win-lose reading.
+    const altEl = document.createElement('div');
+    altEl.className = 'tl-alt tl-div';
+    altEl.textContent = Number.isFinite(a)
+      ? `${a < 0 ? '−' : '+'}${Math.abs(Math.round(a))} m`
+      : '—';
+
+    // Value then bar in each group, with the height value carrying the group
+    // divider on its left edge.
+    grid.append(
+      label,
+      val,
+      barTrack(v, scale, v < 0 ? 'tl-bar gain' : 'tl-bar loss'),
+      altEl,
+      barTrack(a, altScale, 'tl-bar alt'),
+    );
+  }
+
+  // Totals. Both columns close here: the time components sum to the finish-time
+  // gap, and the height components (net changes off the start altitude) sum to
+  // the finish-height gap. No bars — a total can exceed every component, so it
+  // has no place on the components' scale.
+  const totalLabel = document.createElement('div');
+  totalLabel.className = 'tl-label tl-total-label';
+  totalLabel.textContent = 'Finish';
+  totalLabel.title = 'at ESS: elapsed time and height, both relative to the winner';
+
+  const totalTime = document.createElement('div');
+  totalTime.className = 'tl-val';
+  totalTime.textContent = signedTime(loss.total);
+
+  const totalAlt = document.createElement('div');
+  totalAlt.className = 'tl-alt tl-div';
+  totalAlt.textContent = Number.isFinite(loss.altFinish)
+    ? `${loss.altFinish < 0 ? '−' : '+'}${Math.abs(Math.round(loss.altFinish))} m`
+    : '—';
+
+  // A single full-width rule above the total, so the underline is one unbroken
+  // line rather than five bordered cells split by the column gaps.
+  const rule = document.createElement('div');
+  rule.className = 'tl-rule';
+
+  // Same column order as the component rows (value, bar per group) with empty
+  // bar cells, so the totals line up under their columns.
+  const totalCells = [totalLabel, totalTime, document.createElement('div'), totalAlt, document.createElement('div')];
+  for (const el of totalCells) el.classList.add('tl-total');
+  grid.append(rule, ...totalCells);
+
+  panel.appendChild(grid);
+
+  const foot = document.createElement('div');
+  foot.className = 'tl-foot';
+  foot.textContent =
+    `Vs ${refLabel}: positive time = slower in that phase, and the components sum to the total gap. ` +
+    'Height is net metres gained or lost in the same phase (start compares altitude at the line).';
+  panel.appendChild(foot);
+
+  // Reference block: descriptive metrics that characterise the flight but don't
+  // feed the additive totals above. Neutral styling (no rust/teal, no bars) so
+  // they read as context, not as another win/lose axis.
+  if (loss.total !== 0) {
+    const CONTEXT: {
+      key: keyof TimeLossRow['context'];
+      label: string;
+      fmt: (v: number) => string;
+    }[] = [
+      { key: 'avgClimbRate', label: 'Average climb rate', fmt: (v) => `${v.toFixed(2)} m/s` },
+      { key: 'avgAltitude', label: 'Average altitude', fmt: (v) => `${Math.round(v)} m` },
+      { key: 'totalDistance', label: 'Total distance flown', fmt: (v) => `${(v / 1000).toFixed(1)} km` },
+    ];
+
+    const ctx = document.createElement('div');
+    ctx.className = 'tl-context';
+
+    const ctxHead = document.createElement('div');
+    ctxHead.className = 'tl-context-head';
+    ctxHead.textContent = 'Reference (Relative to winner)';
+    ctx.appendChild(ctxHead);
+
+    const ctxGrid = document.createElement('div');
+    ctxGrid.className = 'tl-context-grid';
+    for (const m of CONTEXT) {
+      const value = loss.context[m.key];
+      const delta = loss.contextVsWinner[m.key];
+
+      const label = document.createElement('div');
+      label.className = 'tl-context-label';
+      label.textContent = m.label;
+
+      // Shown relative to the winner: the signed gap is the headline, the
+      // pilot's own value trails as muted context.
+      const val = document.createElement('div');
+      val.className = 'tl-context-val';
+      val.textContent = Number.isFinite(delta)
+        ? `${delta < 0 ? '−' : '+'}${m.fmt(Math.abs(delta))}`
+        : '—';
+
+      const vs = document.createElement('div');
+      vs.className = 'tl-context-vs';
+      vs.textContent = Number.isFinite(value) ? `${m.fmt(value)} actual` : '';
+
+      // Neutral, zero-centred bar scaled to the day's largest gap on this metric
+      // (field-relative — a lone context metric has nothing in-row to size
+      // against). No rust/teal: more climb rate or altitude isn't reliably
+      // better, so this reads as magnitude of difference, not win/lose.
+      const bar = barTrack(delta, contextScale[m.key] || 1, 'tl-bar alt');
+      bar.classList.add('tl-context-track');
+
+      ctxGrid.append(label, val, bar, vs);
+    }
+    ctx.appendChild(ctxGrid);
+    panel.appendChild(ctx);
+  }
+
+  tr.appendChild(td);
+  return tr;
+}
+
 function tableEl(
   table: StatsTable,
   rows: StatsTable['completed'],
   gradient: boolean,
   sel: Selection,
   colors: Map<string, string>,
+  timeLoss: TimeLossData,
 ): { el: HTMLElement; rerender: () => void } {
   const wrap = document.createElement('div');
   wrap.className = 'table-wrap';
@@ -1104,9 +1373,23 @@ function tableEl(
     applyHighlight();
   }
 
-  // Mark the pinned pilot's row (persistent click-to-pin emphasis).
+  const lossByPilot = new Map(timeLoss.rows.map((r) => [r.pilot, r]));
+
+  // Mark the pinned pilot's row (persistent click-to-pin emphasis) and open a
+  // time-loss breakdown directly beneath it.
   const applyHighlight = (): void => {
     for (const [name, el] of rowEls) el.classList.toggle('pinned', sel.isPinned(name));
+
+    tbody.querySelector('tr.time-loss')?.remove();
+    const pinned = sel.highlight();
+    if (!pinned) return;
+    const anchor = rowEls.get(pinned);
+    const loss = lossByPilot.get(pinned);
+    if (!anchor || !loss || !timeLoss.winner) return;
+
+    anchor.after(
+      timeLossRow(loss, timeLoss.winner, table.headers.length + 1, timeLoss.contextScale, timeLoss.topCount),
+    );
   };
   sel.onHighlight(applyHighlight);
 

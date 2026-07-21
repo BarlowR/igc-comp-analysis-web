@@ -26,6 +26,7 @@ export const COMP_SUBSET: { key: string; dir: GradientDir; label: string }[] = [
   { key: 'name', dir: null, label: 'Pilot Name' },
   { key: 'completion_time', dir: 'least_positive', label: 'Completion Time (s)' },
   { key: 'comp_start_msl', dir: 'most_positive', label: 'Start Altitude MSL (m)' },
+  { key: 'comp_finish_msl', dir: 'most_positive', label: 'Finish Altitude MSL (m)' },
   { key: 'comp_seconds_after_gate', dir: 'least_positive', label: 'Start After Gate (s)' },
   { key: 'comp_total_time_climbing_s', dir: 'least_positive', label: 'Total Climbing (s)' },
   { key: 'comp_average_climb_rate', dir: 'most_positive', label: 'Average Climb Rate (m/s)' },
@@ -113,6 +114,85 @@ export interface ClimbData {
   incomplete: ClimbSeries[];
 }
 
+/**
+ * One pilot's gap to the winner, in seconds, split by where it was spent.
+ * `start + thermalGain + thermalFlat + glideGain + glideSink === total`.
+ * Positive = slower than the winner in that phase.
+ */
+export interface TimeLossRow {
+  pilot: string;
+  /**
+   * True only for the winner's row, whose deltas are measured against the
+   * top-N average rather than the winner. Flips the reference wording in the
+   * UI; the sign convention (positive = slower/more than the reference) is
+   * unchanged.
+   */
+  referenceIsAvg: boolean;
+  total: number;
+  /** Later across the start line than the winner. */
+  start: number;
+  /** Longer spent thermalling while actually gaining height. */
+  thermalGain: number;
+  /** Longer spent stopped without gaining — zeros, sink, re-centring. */
+  thermalFlat: number;
+  /**
+   * Longer spent gliding (moving forward), lift and sink merged. All gliding is
+   * progress, so this is not a good/bad axis at the time level — the lift/sink
+   * quality lives in `altGlide` instead. Sums the underlying glide-gain and
+   * glide-sink seconds.
+   */
+  glide: number;
+  /**
+   * Height counterpart to each component, in metres relative to the winner.
+   * `altStart` compares start altitude MSL; the rest compare net height change
+   * within that state, and `altGlide` (net metres gained or lost while gliding)
+   * is where the lift-vs-sink glide quality shows up. Positive means more height
+   * than the winner (gained more, or lost less) — not automatically better, so
+   * these read as context for the time gap rather than a second scoring axis.
+   */
+  altStart: number;
+  altThermalGain: number;
+  altThermalFlat: number;
+  altGlide: number;
+  /**
+   * Height at the finish (ESS) relative to the winner. Because the four state
+   * values are net changes off the start altitude, this is the height column's
+   * total in the same way `total` is the time column's:
+   * `altStart + the four state deltas === altFinish`.
+   */
+  altFinish: number;
+  /**
+   * Descriptive context metrics — each pilot's own value plus its gap to the
+   * winner. These characterise *how* a pilot flew but are not additive
+   * components of the time or height totals, so they live in a separate block,
+   * not the summing grid.
+   */
+  context: { avgClimbRate: number; avgAltitude: number; totalDistance: number };
+  contextVsWinner: { avgClimbRate: number; avgAltitude: number; totalDistance: number };
+}
+
+/** How many of the fastest finishers the winner's row is averaged against. */
+export const TIME_LOSS_TOP_N = 10;
+
+export interface TimeLossData {
+  /** Reference pilot (fastest completion), or null if nobody completed. */
+  winner: string | null;
+  rows: TimeLossRow[];
+  /**
+   * Number of finishers the winner's row is measured against (min(top-N,
+   * field size)). 1 means the winner was the only finisher, so their row has
+   * no reference and stays all-zero.
+   */
+  topCount: number;
+  /**
+   * Largest absolute gap-to-winner in the field for each context metric, used
+   * to scale the reference bars. Unlike the decomposition bars (scaled within a
+   * pilot's own row), a lone context metric has nothing in-row to size against,
+   * so its bar is field-relative: full width = the biggest gap that day.
+   */
+  contextScale: { avgClimbRate: number; avgAltitude: number; totalDistance: number };
+}
+
 export class Competition {
   task: XcTask;
   pilots: PilotRow[] = [];
@@ -195,6 +275,101 @@ export class Competition {
         return { text, value };
       }),
     );
+  }
+
+  // ---- time-loss decomposition ------------------------------------------
+
+  /**
+   * Break each completing pilot's gap to the winner into additive components.
+   *
+   * Every pilot's `completion_time` is measured from the same reference (the
+   * start gate opening, see IgcFlight.buildCompMetrics), so elapsed times are
+   * directly comparable. That total splits exactly into the pre-start loiter
+   * (`comp_seconds_after_gate`) plus four mutually-exclusive post-start states,
+   * so the per-component gaps to the winner sum to the total gap with no
+   * residual — see the `secs_*` block in IgcFlight.calculateStats.
+   *
+   * For display the two glide states (lift vs sink) are merged into one
+   * `glide` component: all gliding is forward progress, so splitting it by
+   * lift/sink carries no good/bad meaning at the time level. That quality
+   * survives in the height column as `altGlide` (net metres on glide). The
+   * merge preserves both additive identities.
+   */
+  buildTimeLoss(): TimeLossData {
+    const completed = this.pilots
+      .filter((p) => p.completed)
+      .sort((a, b) => num(a.stats.completion_time) - num(b.stats.completion_time));
+    const winner = completed[0];
+    if (!winner) {
+      return {
+        winner: null,
+        rows: [],
+        contextScale: { avgClimbRate: 0, avgAltitude: 0, totalDistance: 0 },
+        topCount: 0,
+      };
+    }
+
+    // The winner has no one ahead to measure against, so their all-zero row
+    // would be dead weight. Instead the winner is compared to the average of
+    // the top finishers — the same decomposition, now showing where the winner
+    // beat (or trailed) the field. The average is additive, so every identity
+    // that holds against a single winner also holds against it.
+    const topN = completed.slice(0, TIME_LOSS_TOP_N);
+    const avgOf = (key: string): number => {
+      const vals = topN.map((p) => num(p.stats[key])).filter(Number.isFinite);
+      return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : NaN;
+    };
+
+    const rows = completed.map((p) => {
+      const referenceIsAvg = p === winner;
+      // What this pilot is measured against on a given stat: the top-N average
+      // for the winner, the winner's flight for everyone else.
+      const ref = (key: string): number =>
+        referenceIsAvg ? avgOf(key) : num(winner.stats[key]);
+      // Gap to the reference on a single stat.
+      const d = (key: string): number => num(p.stats[key]) - ref(key);
+      // Same, but for a height stat that may be absent (no SSS exit / no
+      // finish): keep NaN rather than letting `null - null = 0` masquerade as a
+      // real zero delta.
+      const altD = (key: string): number => {
+        const v = num(p.stats[key]) - ref(key);
+        return Number.isFinite(v) ? v : NaN;
+      };
+      return {
+        pilot: p.name,
+        referenceIsAvg,
+        total: num(p.stats.completion_time) - ref('completion_time'),
+        start: d('comp_seconds_after_gate'),
+        thermalGain: d('comp_secs_thermal_gain'),
+        thermalFlat: d('comp_secs_thermal_flat'),
+        glide: d('comp_secs_glide_gain') + d('comp_secs_glide_sink'),
+        altStart: altD('comp_start_msl'),
+        altThermalGain: altD('comp_alt_thermal_gain'),
+        altThermalFlat: altD('comp_alt_thermal_flat'),
+        altGlide: altD('comp_alt_glide_gain') + altD('comp_alt_glide_sink'),
+        altFinish: altD('comp_finish_msl'),
+        context: {
+          avgClimbRate: num(p.stats.comp_average_climb_rate),
+          avgAltitude: num(p.stats.comp_average_altitude),
+          totalDistance: num(p.stats.comp_total_distance),
+        },
+        contextVsWinner: {
+          avgClimbRate: d('comp_average_climb_rate'),
+          avgAltitude: d('comp_average_altitude'),
+          totalDistance: d('comp_total_distance'),
+        },
+      };
+    });
+
+    const fieldMax = (pick: (r: TimeLossRow) => number): number =>
+      Math.max(0, ...rows.map((r) => Math.abs(pick(r))).filter(Number.isFinite));
+    const contextScale = {
+      avgClimbRate: fieldMax((r) => r.contextVsWinner.avgClimbRate),
+      avgAltitude: fieldMax((r) => r.contextVsWinner.avgAltitude),
+      totalDistance: fieldMax((r) => r.contextVsWinner.totalDistance),
+    };
+
+    return { winner: winner.name, rows, contextScale, topCount: topN.length };
   }
 
   // ---- climb-rate distribution ------------------------------------------
