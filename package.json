@@ -9,7 +9,8 @@
     "preview": "astro preview",
     "astro": "astro",
     "archive": "node scripts/archive.mjs",
-    "airscore": "node scripts/airscore-pull.mjs"
+    "airscore": "node scripts/airscore-pull.mjs",
+    "xcdemon": "node scripts/xcdemon-crawl.mjs"
   },
   "dependencies": {
     "astro": "^5.0.0",
