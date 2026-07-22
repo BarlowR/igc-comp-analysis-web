@@ -54,17 +54,6 @@ const clientEntry = { base, label: heading, utcOffsetMinutes: entry.utcOffsetMin
         <button id="hideAll" type="button">Hide all</button>
       </div>
       <ul id="pilotList" class="pilot-list"></ul>
-      <details class="terrain3d">
-        <summary>Satellite + terrain (optional)</summary>
-        <p class="hint">
-          Paste a free <a href="https://ion.cesium.com/tokens" target="_blank" rel="noopener">Cesium Ion token</a>
-          to switch on satellite imagery and real 3D terrain. Stored in your browser only.
-        </p>
-        <div class="terrain-row">
-          <input id="ionToken" type="password" placeholder="Ion access token" />
-          <button id="applyTerrain" type="button">Apply</button>
-        </div>
-      </details>
     </div>
   </div>
 
@@ -196,8 +185,7 @@ const clientEntry = { base, label: heading, utcOffsetMinutes: entry.utcOffsetMin
     gap: 0.4rem;
     margin-bottom: 0.5rem;
   }
-  .panel3d-controls button,
-  .terrain-row button {
+  .panel3d-controls button {
     font: inherit;
     padding: 0.2rem 0.55rem;
     border: 1px solid rgba(0, 0, 0, 0.2);
@@ -262,31 +250,5 @@ const clientEntry = { base, label: heading, utcOffsetMinutes: entry.utcOffsetMin
   }
   .pilot-list li.pinned .nm {
     font-weight: 500;
-  }
-  .terrain3d {
-    margin-top: 0.6rem;
-    border-top: 1px solid rgba(0, 0, 0, 0.1);
-    padding-top: 0.5rem;
-  }
-  .terrain3d summary {
-    cursor: pointer;
-    color: #6b655c;
-  }
-  .terrain3d .hint {
-    font-size: 0.78rem;
-    color: #6b655c;
-    margin: 0.4rem 0;
-  }
-  .terrain-row {
-    display: flex;
-    gap: 0.4rem;
-  }
-  .terrain-row input {
-    flex: 1;
-    min-width: 0;
-    font: inherit;
-    padding: 0.2rem 0.4rem;
-    border: 1px solid rgba(0, 0, 0, 0.2);
-    border-radius: 6px;
   }
 </style>

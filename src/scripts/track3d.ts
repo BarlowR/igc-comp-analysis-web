@@ -261,7 +261,7 @@ async function main(): Promise<void> {
   });
 
   viewer.flyTo(viewer.entities, { duration: 1.5 });
-  wireTerrain(viewer, statusEl, () => setTaskTerrainMode(true));
+  void enableTerrain(viewer, statusEl, () => setTaskTerrainMode(true));
 
   const field = truncated ? `Top ${topN} of ${ordered.length} pilots` : `${ordered.length} pilots`;
   statusEl.textContent = `${field} — check to show, click a name to pin + follow. Drag the altitude plot or press ▶.`;
@@ -705,21 +705,14 @@ function wirePinPicking(viewer: Cesium.Viewer, ents: PilotEnt[], sel: Selection)
 // ---- optional Cesium Ion (satellite imagery + world terrain) --------------
 
 /**
- * With a Cesium Ion token, upgrade the globe to Ion's satellite imagery (Bing
- * aerial) and world terrain — both on by default once a token is present.
- *
- * `persist` is set only for a token the user typed themselves, so it's reapplied
- * on their next visit. The build-time embedded token (see wireTerrain) is passed
- * with `persist:false` — it must NOT be copied into every visitor's localStorage,
- * or a later token rotation couldn't take effect for them.
+ * If a Cesium Ion token was baked in at build time (PUBLIC_CESIUM_ION_TOKEN, set
+ * in the Render dashboard), upgrade the globe to Ion's satellite imagery (Bing
+ * aerial) + world terrain. With no token the globe stays on the token-free OSM
+ * ellipsoid. There is no in-app token entry — it's a deploy-time setting.
  */
-async function enableIon(
-  viewer: Cesium.Viewer,
-  token: string,
-  statusEl: HTMLElement,
-  onTerrain: () => void,
-  persist: boolean,
-): Promise<void> {
+async function enableTerrain(viewer: Cesium.Viewer, statusEl: HTMLElement, onTerrain: () => void): Promise<void> {
+  const token = import.meta.env.PUBLIC_CESIUM_ION_TOKEN;
+  if (!token) return;
   try {
     Cesium.Ion.defaultAccessToken = token;
     // Satellite imagery: swap the OSM base layer for Ion world imagery.
@@ -729,29 +722,10 @@ async function enableIon(
     // World terrain.
     viewer.scene.setTerrain(new Cesium.Terrain(Cesium.createWorldTerrainAsync()));
     onTerrain(); // bump the turnpoint columns to their terrain opacity
-    if (persist) localStorage.setItem('cesiumIonToken', token);
     statusEl.textContent = 'Cesium Ion: satellite imagery + world terrain enabled.';
   } catch (err) {
     statusEl.textContent = `Cesium Ion failed: ${(err as Error).message}`;
   }
-}
-
-function wireTerrain(viewer: Cesium.Viewer, statusEl: HTMLElement, onTerrain: () => void): void {
-  const input = $('ionToken') as HTMLInputElement;
-  // Precedence: a token the user pasted (localStorage) overrides the token baked
-  // in at build time via PUBLIC_CESIUM_ION_TOKEN (set in the Render dashboard).
-  const saved = localStorage.getItem('cesiumIonToken');
-  const embedded = import.meta.env.PUBLIC_CESIUM_ION_TOKEN;
-  if (saved) {
-    input.value = saved; // only reflect the user's own token in the box
-    void enableIon(viewer, saved, statusEl, onTerrain, true);
-  } else if (embedded) {
-    void enableIon(viewer, embedded, statusEl, onTerrain, false);
-  }
-  $('applyTerrain').addEventListener('click', () => {
-    const token = input.value.trim();
-    if (token) void enableIon(viewer, token, statusEl, onTerrain, true);
-  });
 }
 
 // ---- helpers --------------------------------------------------------------
