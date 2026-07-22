@@ -9,3 +9,6 @@ dist/
 !.env.example
 # Cesium static assets, regenerated from node_modules by scripts/copy-cesium-assets.mjs
 public/cesium/
+# Local Python prototyping (analysis/progress_prototype.py) + its generated output
+.venv-proto/
+analysis_out/
