@@ -307,6 +307,7 @@ const CYL_FILL_TERRAIN = 0.28;
 const CYL_LINE_FLAT = 0.55;
 const CYL_LINE_TERRAIN = 0.85;
 const RING_SLICES = 72; // segments around the turnpoint circle
+const CYL_FADE_BAND = 700; // m: a column fades to invisible over this band as the camera nears its wall
 
 /** Ring of world positions around a turnpoint centre at `height` (m above ellipsoid). */
 function turnpointRing(lon: number, lat: number, radius: number, height: number): Cesium.Cartesian3[] {
@@ -322,41 +323,80 @@ function turnpointRing(lon: number, lat: number, radius: number, height: number)
 
 /**
  * Draw the turnpoint columns, course line and labels. Returns a
- * `setTerrainMode(on)` that bumps the column opacity when terrain is enabled.
+ * `setTerrainMode(on)` that bumps the base column opacity when terrain is enabled.
  *
  * Each column is a `wall` (vertical ribbon around the turnpoint circle, no top
  * or bottom cap) plus crisp top + bottom rim polylines — so the scoring cylinder
  * reads as an open tube rather than a capped, disc-topped solid.
+ *
+ * Every column also **fades out as the camera approaches its wall** (per-frame
+ * `fade` factor driven by the horizontal camera→axis distance), so flying the
+ * follow-cam through a turnpoint tube doesn't wash the whole view with
+ * translucent colour. Alpha = base (terrain-aware) × fade, applied via
+ * `CallbackProperty` materials so both inputs update live without re-assigning.
  */
 function drawTask(
   viewer: Cesium.Viewer,
   turnpoints: MapTurnpoint[],
   columnTop: number,
 ): (terrain: boolean) => void {
-  const columns: { color: Cesium.Color; wall: Cesium.Entity; rims: Cesium.Entity[] }[] = [];
+  const ellipsoid = viewer.scene.globe.ellipsoid;
+  let baseFill = CYL_FILL_FLAT;
+  let baseLine = CYL_LINE_FLAT;
+
+  interface Column {
+    color: Cesium.Color;
+    lat: number;
+    lon: number;
+    radius: number;
+    fade: number; // 0 (camera inside the tube) → 1 (clear of it); set each preRender
+    fillScratch: Cesium.Color; // reused so the callbacks don't allocate per frame
+    lineScratch: Cesium.Color;
+  }
+  const columns: Column[] = [];
+
   for (const tp of turnpoints) {
     const color = tpColor(tp.type);
+    const col: Column = {
+      color,
+      lat: tp.lat,
+      lon: tp.lon,
+      radius: tp.radius,
+      fade: 1,
+      fillScratch: color.clone(),
+      lineScratch: color.clone(),
+    };
     const base = turnpointRing(tp.lon, tp.lat, tp.radius, 0);
-    const wall = viewer.entities.add({
+    viewer.entities.add({
       wall: {
         positions: base,
         maximumHeights: new Array(base.length).fill(columnTop),
         minimumHeights: new Array(base.length).fill(0),
-        material: color.withAlpha(CYL_FILL_FLAT),
+        material: new Cesium.ColorMaterialProperty(
+          new Cesium.CallbackProperty(
+            () => Cesium.Color.fromAlpha(color, baseFill * col.fade, col.fillScratch),
+            false,
+          ),
+        ),
       },
     });
     // Crisp top + bottom rim circles (the wall itself carries no outline).
-    const rims = [0, columnTop].map((h) =>
+    for (const h of [0, columnTop]) {
       viewer.entities.add({
         polyline: {
           positions: turnpointRing(tp.lon, tp.lat, tp.radius, h),
           width: 1.5,
           arcType: Cesium.ArcType.NONE,
-          material: new Cesium.ColorMaterialProperty(color.withAlpha(CYL_LINE_FLAT)),
+          material: new Cesium.ColorMaterialProperty(
+            new Cesium.CallbackProperty(
+              () => Cesium.Color.fromAlpha(color, baseLine * col.fade, col.lineScratch),
+              false,
+            ),
+          ),
         },
-      }),
-    );
-    columns.push({ color, wall, rims });
+      });
+    }
+    columns.push(col);
     viewer.entities.add({
       position: Cesium.Cartesian3.fromDegrees(tp.lon, tp.lat, columnTop),
       label: {
@@ -391,15 +431,26 @@ function drawTask(
     });
   }
 
-  return (terrain: boolean): void => {
-    const fill = terrain ? CYL_FILL_TERRAIN : CYL_FILL_FLAT;
-    const line = terrain ? CYL_LINE_TERRAIN : CYL_LINE_FLAT;
-    for (const { color, wall, rims } of columns) {
-      wall.wall!.material = new Cesium.ColorMaterialProperty(color.withAlpha(fill));
-      for (const rim of rims) {
-        rim.polyline!.material = new Cesium.ColorMaterialProperty(color.withAlpha(line));
-      }
+  // Each frame, set every column's fade from the horizontal distance between the
+  // camera and the column axis: fully clear (1) once the camera is CYL_FADE_BAND
+  // beyond the wall, ramping to 0 at the wall so the tube can't blind the view.
+  const camCarto = new Cesium.Cartographic();
+  viewer.scene.preRender.addEventListener(() => {
+    const c = ellipsoid.cartesianToCartographic(viewer.camera.positionWC, camCarto);
+    if (!c) return;
+    const camLat = Cesium.Math.toDegrees(c.latitude);
+    const camLon = Cesium.Math.toDegrees(c.longitude);
+    for (const col of columns) {
+      const horiz = haversine(camLat, camLon, col.lat, col.lon);
+      col.fade = Math.min(1, Math.max(0, (horiz - col.radius) / CYL_FADE_BAND));
     }
+  });
+
+  // Terrain toggle just swaps the base alpha; the CallbackProperty materials
+  // (base × fade) pick it up on the next render.
+  return (terrain: boolean): void => {
+    baseFill = terrain ? CYL_FILL_TERRAIN : CYL_FILL_FLAT;
+    baseLine = terrain ? CYL_LINE_TERRAIN : CYL_LINE_FLAT;
   };
 }
 
