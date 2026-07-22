@@ -548,8 +548,10 @@ export function mountTimeline(
   bar.append(playBtn, label, speedWrap);
   afterEl.insertAdjacentElement('afterend', bar);
 
-  // Current scrub time. Starts at the end so the full tracks show by default.
-  let currentMs = tMax;
+  // Current scrub time. Starts at the task start gate (falling back to the first
+  // fix if the task has no defined start), clamped into the track window.
+  let currentMs =
+    data.startMs != null ? Math.min(tMax, Math.max(tMin, data.startMs)) : tMin;
   const setTime = (ms: number): void => {
     currentMs = Math.min(tMax, Math.max(tMin, ms));
     render();
