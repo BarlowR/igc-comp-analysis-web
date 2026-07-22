@@ -4,9 +4,12 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "predev": "node scripts/copy-cesium-assets.mjs",
     "dev": "astro dev",
+    "prebuild": "node scripts/copy-cesium-assets.mjs",
     "build": "astro build",
     "preview": "astro preview",
+    "copy-cesium": "node scripts/copy-cesium-assets.mjs",
     "astro": "astro",
     "archive": "node scripts/archive.mjs",
     "airscore": "node scripts/airscore-pull.mjs",
@@ -14,8 +17,10 @@
   },
   "dependencies": {
     "astro": "^5.0.0",
+    "cesium": "^1.143.0",
     "chart.js": "^4.4.0",
-    "leaflet": "^1.9.4"
+    "leaflet": "^1.9.4",
+    "vite-plugin-cesium": "^1.2.23"
   },
   "devDependencies": {
     "@types/leaflet": "^1.9.21"

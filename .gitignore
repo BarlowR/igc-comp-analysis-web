@@ -3,3 +3,5 @@ dist/
 .astro/
 .DS_Store
 *.log
+# Cesium static assets, regenerated from node_modules by scripts/copy-cesium-assets.mjs
+public/cesium/

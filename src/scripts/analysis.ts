@@ -51,7 +51,7 @@ Chart.defaults.color = '#140c0c';
 // (ΔE ≥ 51) — so none read as grey-ish — and mutually separated (min ΔE ≈ 25).
 // Ordered by interleaved hue so consecutive leaderboard pilots get strongly
 // contrasting (opposite-wheel) colours.
-const PALETTE = [
+export const PALETTE = [
   '#e6194b', '#0751a6', '#ad0000', '#297eff', '#ff5c0a',
   '#0044cc', '#a65107', '#2945ff', '#cc9600', '#0a0aff',
   '#8bad00', '#8800cc', '#08c408', '#de0aff', '#07a63c',
@@ -61,14 +61,14 @@ const PALETTE = [
 // Muted grey used to draw deselected pilots as faint background lines on both
 // the map and the climb chart, so the field stays visible without competing
 // with the selected (coloured) pilots.
-const DESELECTED_GREY = '#9a948a';
+export const DESELECTED_GREY = '#9a948a';
 
 /**
  * Assign every pilot one stable colour, keyed by name, so a pilot looks the
  * same on the map and on both climb charts. Built once per analysis run from
  * the canonical pilot order.
  */
-function buildPilotColors(names: string[]): Map<string, string> {
+export function buildPilotColors(names: string[]): Map<string, string> {
   const colors = new Map<string, string>();
   names.forEach((n, i) => colors.set(n, PALETTE[i % PALETTE.length]));
   return colors;
@@ -138,7 +138,7 @@ export async function runAnalysis(opts: {
  * map all read and mutate this, and re-render via subscriptions, so selecting a
  * pilot anywhere updates everywhere. Pilots are keyed by name.
  */
-interface Selection {
+export interface Selection {
   has(name: string): boolean;
   all(): string[];
   selectedCount(): number;
@@ -155,7 +155,7 @@ interface Selection {
   onHighlight(fn: () => void): void;
 }
 
-function makeSelection(allNames: string[], initial: string[]): Selection {
+export function makeSelection(allNames: string[], initial: string[]): Selection {
   const selected = new Set(initial);
   const subs: (() => void)[] = [];
   const notify = (): void => {
@@ -206,6 +206,38 @@ function makeSelection(allNames: string[], initial: string[]): Selection {
   };
 }
 
+/**
+ * Canonical pilot order + shared selection/colours, used by both the 2D results
+ * page and the 3D viewer so they agree on ordering, the top-20 default, and each
+ * pilot's colour. Pilots are ordered completed-first (completed rows are already
+ * sorted by completion time), so the first 20 are the leaderboard's top 20.
+ */
+export function buildPilotSelection(
+  table: StatsTable,
+  mapData: MapData,
+): { ordered: string[]; sel: Selection; colors: Map<string, string>; truncated: boolean; topN: number } {
+  const ordered: string[] = [];
+  const seen = new Set<string>();
+  const push = (n: string): void => {
+    if (!seen.has(n)) {
+      seen.add(n);
+      ordered.push(n);
+    }
+  };
+  for (const r of table.completed) push(r[0].text);
+  for (const r of table.incomplete) push(r[0].text);
+  for (const tr of mapData.tracks) push(tr.pilot);
+
+  // With a large field, default to just the top 20 to keep the view manageable;
+  // otherwise select everyone.
+  const TOP_N = 20;
+  const TRUNCATE_ABOVE = 50;
+  const truncated = ordered.length > TRUNCATE_ABOVE;
+  const sel = makeSelection(ordered, truncated ? ordered.slice(0, TOP_N) : ordered);
+  const colors = buildPilotColors(ordered);
+  return { ordered, sel, colors, truncated, topN: TOP_N };
+}
+
 function render(
   resultsEl: HTMLElement,
   statusEl: HTMLElement | undefined,
@@ -222,33 +254,12 @@ function render(
   }
   resultsEl.innerHTML = '';
 
-  // One selection shared across the map, both tables, and both charts.
-  // Pilots are ordered completed-first (completed rows are sorted by completion
-  // time), so the first 20 are the leaderboard's top 20, selected by default.
-  const ordered: string[] = [];
-  const seen = new Set<string>();
-  const push = (n: string): void => {
-    if (!seen.has(n)) {
-      seen.add(n);
-      ordered.push(n);
-    }
-  };
-  for (const r of table.completed) push(r[0].text);
-  for (const r of table.incomplete) push(r[0].text);
-  for (const tr of mapData.tracks) push(tr.pilot);
-
-  // With a large field, default to just the top 20 to keep the page manageable;
-  // otherwise select everyone.
-  const TOP_N = 20;
-  const TRUNCATE_ABOVE = 50;
-  const truncated = ordered.length > TRUNCATE_ABOVE;
-  const sel = makeSelection(ordered, truncated ? ordered.slice(0, TOP_N) : ordered);
+  // One selection + colour map shared across the map, both tables, and both
+  // charts (see buildPilotSelection for the top-20 default rule).
+  const { ordered, sel, colors, truncated, topN } = buildPilotSelection(table, mapData);
   if (truncated && statusEl) {
-    statusEl.textContent += `  Showing the top ${TOP_N} of ${ordered.length} pilots by default — use the “deselected pilots” section or the checkboxes to show more.`;
+    statusEl.textContent += `  Showing the top ${topN} of ${ordered.length} pilots by default — use the “deselected pilots” section or the checkboxes to show more.`;
   }
-
-  // One stable colour per pilot, shared by the map and both climb charts.
-  const colors = buildPilotColors(ordered);
 
   if (table.completed.length || climb.completed.length) {
     resultsEl.appendChild(group('Completed Task', table, table.completed, true, climb.completed, sel, colors, timeLoss));
@@ -378,65 +389,9 @@ function initMap(holder: HTMLElement, data: MapData, sel: Selection, colors: Map
   sel.subscribe(styleTracks);
   sel.onHighlight(styleTracks);
 
-  addTimeSlider(holder, m, data, sel, colors);
-}
-
-/**
- * A scrubber under the map that replays the day: dragging (or playing) the
- * slider drops a coloured dot at each selected pilot's position at that moment,
- * interpolated between fixes, so you can watch the gaggle move through time.
- */
-function addTimeSlider(
-  holder: HTMLElement,
-  m: L.Map,
-  data: MapData,
-  sel: Selection,
-  colors: Map<string, string>,
-): void {
-  // Global time span across every track (ignoring non-finite stamps).
-  let tMin = Infinity;
-  let tMax = -Infinity;
-  for (const tr of data.tracks) {
-    for (const t of tr.times) {
-      if (!Number.isFinite(t)) continue;
-      if (t < tMin) tMin = t;
-      if (t > tMax) tMax = t;
-    }
-  }
-  if (!Number.isFinite(tMin) || tMax <= tMin) return; // nothing to scrub
-
-  // The altitude plot below doubles as the scrubber: drag across it to set the
-  // time. This bar just holds the play/pause button and the clock readout.
-  const bar = document.createElement('div');
-  bar.className = 'time-slider';
-  const playBtn = document.createElement('button');
-  playBtn.type = 'button';
-  playBtn.className = 'time-slider-play';
-  playBtn.setAttribute('aria-label', 'Play');
-  playBtn.textContent = '▶';
-  const label = document.createElement('span');
-  label.className = 'time-slider-label';
-  bar.append(playBtn, label);
-  holder.insertAdjacentElement('afterend', bar);
-
-  // Current scrub time. Dragging the altitude plot or playback moves it; render
-  // reads it. Starts at the end so the full tracks show by default.
-  let currentMs = tMax;
-  const setTime = (ms: number): void => {
-    currentMs = Math.min(tMax, Math.max(tMin, ms));
-    render();
-  };
-
-  // Altitude profile below the bar, sharing the same time axis, colours and
-  // selection so it stays in lockstep with the map — and acting as the slider.
-  const drawAlt = createAltitudePlot(bar, data, tMin, tMax, sel, colors, (ms) => {
-    stop(); // a manual scrub interrupts playback
-    setTime(ms);
-  });
-
-  // A position dot for every pilot (grey unless selected). Selected pilots also
-  // get a solid coloured trail from launch to the dot. All overlay/dot layers
-  // are non-interactive so hover/click still hit the grey base line underneath.
+  // The scrubber's per-frame drawing on *this* map: coloured trails + moving
+  // position dots. The generic timeline scaffolding (bar, altitude plot,
+  // playback) lives in mountTimeline, shared with the 3D viewer.
   const dots = new Map<string, L.CircleMarker>();
   const trails = new Map<string, L.Polyline>();
 
@@ -461,9 +416,7 @@ function addTimeSlider(
     line.bringToFront();
   };
 
-  const render = (): void => {
-    const t = currentMs;
-    label.textContent = formatClock(t, data.utcOffsetMinutes);
+  const leafletFrame = (t: number): void => {
     const single = sel.selectedCount() === 1;
     const highlight = sel.highlight();
 
@@ -520,18 +473,108 @@ function addTimeSlider(
       trails.get(highlight)?.bringToFront();
       dots.get(highlight)?.bringToFront();
     }
-
-    drawAlt(t); // keep the linked altitude plot in sync
   };
 
-  // Re-place markers when the selection (or highlight) changes under a fixed time.
+  mountTimeline(holder, data, sel, colors, leafletFrame);
+}
+
+/**
+ * A scrubber (play/pause + clock + altitude plot) that replays the day. Drives a
+ * caller-supplied `frame(t)` — the 2D map draws moving dots/trails, the 3D
+ * viewer moves its markers — while the altitude plot below doubles as the
+ * draggable slider. The bar + plot are inserted right after `afterEl`.
+ *
+ * Shared by the 2D results page and the 3D viewer so both get the identical
+ * control, colours and playback.
+ */
+export function mountTimeline(
+  afterEl: HTMLElement,
+  data: MapData,
+  sel: Selection,
+  colors: Map<string, string>,
+  frame: (t: number) => void,
+  durationMs = 60_000,
+): void {
+  // Global time span across every track (ignoring non-finite stamps).
+  let tMin = Infinity;
+  let tMax = -Infinity;
+  for (const tr of data.tracks) {
+    for (const t of tr.times) {
+      if (!Number.isFinite(t)) continue;
+      if (t < tMin) tMin = t;
+      if (t > tMax) tMax = t;
+    }
+  }
+  if (!Number.isFinite(tMin) || tMax <= tMin) return; // nothing to scrub
+
+  // This bar holds the play/pause button and the clock readout; the altitude
+  // plot inserted after it is the actual draggable slider.
+  const bar = document.createElement('div');
+  bar.className = 'time-slider';
+  const playBtn = document.createElement('button');
+  playBtn.type = 'button';
+  playBtn.className = 'time-slider-play';
+  playBtn.setAttribute('aria-label', 'Play');
+  playBtn.textContent = '▶';
+  const label = document.createElement('span');
+  label.className = 'time-slider-label';
+
+  // Playback-speed slider: sets how long a full-day sweep takes (log scale, so
+  // the middle feels natural). `sweepMs` is read live by the playback loop.
+  const MIN_DUR = 15_000; // fastest full sweep
+  const MAX_DUR = 600_000; // slowest full sweep
+  let sweepMs = Math.min(MAX_DUR, Math.max(MIN_DUR, durationMs));
+  const durToVal = (d: number): number => Math.log(d / MAX_DUR) / Math.log(MIN_DUR / MAX_DUR);
+  const valToDur = (v: number): number => MAX_DUR * Math.pow(MIN_DUR / MAX_DUR, v);
+  const speed = document.createElement('input');
+  speed.type = 'range';
+  speed.min = '0';
+  speed.max = '1';
+  speed.step = '0.001';
+  speed.value = String(durToVal(sweepMs));
+  speed.title = 'Playback speed';
+  speed.style.width = '100px';
+  speed.addEventListener('input', () => {
+    sweepMs = valToDur(Number(speed.value));
+  });
+  const speedWrap = document.createElement('span');
+  speedWrap.style.cssText = 'margin-left:auto;display:flex;align-items:center;gap:0.3rem';
+  const slow = document.createElement('span');
+  slow.textContent = '🐢';
+  const fast = document.createElement('span');
+  fast.textContent = '🐇';
+  speedWrap.append(slow, speed, fast);
+
+  bar.append(playBtn, label, speedWrap);
+  afterEl.insertAdjacentElement('afterend', bar);
+
+  // Current scrub time. Starts at the end so the full tracks show by default.
+  let currentMs = tMax;
+  const setTime = (ms: number): void => {
+    currentMs = Math.min(tMax, Math.max(tMin, ms));
+    render();
+  };
+
+  // Altitude profile below the bar, sharing the same time axis, colours and
+  // selection so it stays in lockstep — and acting as the slider.
+  const drawAlt = createAltitudePlot(bar, data, tMin, tMax, sel, colors, (ms) => {
+    stop(); // a manual scrub interrupts playback
+    setTime(ms);
+  });
+
+  const render = (): void => {
+    label.textContent = formatClock(currentMs, data.utcOffsetMinutes);
+    frame(currentMs);
+    drawAlt(currentMs); // keep the linked altitude plot in sync
+  };
+
+  // Re-run the frame when the selection (or highlight) changes at a fixed time.
   sel.subscribe(render);
   sel.onHighlight(render);
 
   // --- playback ------------------------------------------------------------
-  // Sweep the whole day in ~30s of real time; rAF stops itself if the map (and
-  // thus this control) has been torn down by a re-render.
-  const DURATION_MS = 30_000;
+  // Sweep the whole day in `sweepMs` of real time (set live by the speed
+  // slider); rAF stops itself if the control has been torn down.
   let raf = 0;
   let last = 0;
   const stop = (): void => {
@@ -542,10 +585,10 @@ function addTimeSlider(
     playBtn.setAttribute('aria-label', 'Play');
   };
   const tick = (now: number): void => {
-    if (!bar.isConnected) return; // map was replaced; let the loop die
+    if (!bar.isConnected) return; // control was removed; let the loop die
     const dt = last ? now - last : 0;
     last = now;
-    const next = currentMs + ((tMax - tMin) * dt) / DURATION_MS;
+    const next = currentMs + ((tMax - tMin) * dt) / sweepMs;
     if (next >= tMax) {
       setTime(tMax);
       stop();
@@ -554,7 +597,7 @@ function addTimeSlider(
     setTime(next);
     raf = requestAnimationFrame(tick);
   };
-  playBtn.addEventListener('click', () => {
+  const toggle = (): void => {
     if (raf) {
       stop();
       return;
@@ -564,7 +607,24 @@ function addTimeSlider(
     playBtn.textContent = '❚❚';
     playBtn.setAttribute('aria-label', 'Pause');
     raf = requestAnimationFrame(tick);
-  });
+  };
+  playBtn.addEventListener('click', toggle);
+
+  // Space toggles play/pause globally — except when typing in a field, or when
+  // the play button itself is focused (its native click already fires on Space).
+  const onKey = (e: KeyboardEvent): void => {
+    if (e.code !== 'Space' && e.key !== ' ') return;
+    if (!bar.isConnected) {
+      document.removeEventListener('keydown', onKey); // control torn down; unbind
+      return;
+    }
+    if (e.repeat) return;
+    const t = e.target as HTMLElement | null;
+    if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT|BUTTON)$/.test(t.tagName))) return;
+    e.preventDefault(); // stop the page from scrolling
+    toggle();
+  };
+  document.addEventListener('keydown', onKey);
 
   render();
 }
@@ -584,7 +644,7 @@ function lastIdxAtOrBefore(times: number[], t: number): number {
 }
 
 /** Interpolate a track's [lat, lon] at epoch-ms `t`, or null if out of range. */
-function positionAt(tr: MapTrack, t: number): [number, number] | null {
+export function positionAt(tr: MapTrack, t: number): [number, number] | null {
   const { times, points } = tr;
   const n = times.length;
   if (n === 0 || t < times[0] || t > times[n - 1]) return null;
@@ -624,7 +684,7 @@ function formatClock(ms: number, offsetMin: number | null): string {
 }
 
 /** Interpolate a track's GPS altitude (m) at epoch-ms `t`, or null if out of range. */
-function altAt(tr: MapTrack, t: number): number | null {
+export function altAt(tr: MapTrack, t: number): number | null {
   const { times, alt } = tr;
   const n = times.length;
   if (n === 0 || t < times[0] || t > times[n - 1]) return null;

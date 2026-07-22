@@ -29,6 +29,11 @@ const heading = entry.title ?? `${entry.compLabel ?? entry.comp} — ${entry.day
 <Base title={`${heading} — Archive`}>
   <header class="hero">
     <h1>{heading}</h1>
+    <a class="view3d-link" href={`${base}/3d`}>
+      <span class="view3d-icon" aria-hidden="true">◈</span>
+      View in 3D
+      <span class="view3d-arrow" aria-hidden="true">→</span>
+    </a>
   </header>
 
   <main>
@@ -45,3 +50,41 @@ const heading = entry.title ?? `${entry.compLabel ?? entry.comp} — ${entry.day
     import '../../../scripts/archive.ts';
   </script>
 </Base>
+
+<style>
+  /* "View in 3D" call-to-action pill under the day title. */
+  .view3d-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    margin-top: 0.85rem;
+    padding: 0.4rem 1rem;
+    border: 1px solid var(--accent);
+    border-radius: 999px;
+    color: var(--accent);
+    font-size: 0.9rem;
+    line-height: 1;
+    text-decoration: none;
+    transition:
+      background-color 0.15s ease,
+      color 0.15s ease,
+      box-shadow 0.15s ease;
+  }
+  .view3d-link:hover,
+  .view3d-link:focus-visible {
+    background: var(--accent);
+    color: #fff;
+    box-shadow: 0 4px 14px rgba(112, 90, 144, 0.35);
+    outline: none;
+  }
+  .view3d-icon {
+    font-size: 0.85em;
+  }
+  .view3d-arrow {
+    transition: transform 0.15s ease;
+  }
+  .view3d-link:hover .view3d-arrow,
+  .view3d-link:focus-visible .view3d-arrow {
+    transform: translateX(3px);
+  }
+</style>
