@@ -3,5 +3,9 @@ dist/
 .astro/
 .DS_Store
 *.log
+# Local env (holds the Cesium Ion token); set real values in the Render dashboard.
+.env
+.env.*
+!.env.example
 # Cesium static assets, regenerated from node_modules by scripts/copy-cesium-assets.mjs
 public/cesium/

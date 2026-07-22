@@ -655,14 +655,19 @@ function wirePinPicking(viewer: Cesium.Viewer, ents: PilotEnt[], sel: Selection)
 
 /**
  * With a Cesium Ion token, upgrade the globe to Ion's satellite imagery (Bing
- * aerial) and world terrain — both on by default once a token is present. The
- * token is persisted so it's reapplied automatically on the next visit.
+ * aerial) and world terrain — both on by default once a token is present.
+ *
+ * `persist` is set only for a token the user typed themselves, so it's reapplied
+ * on their next visit. The build-time embedded token (see wireTerrain) is passed
+ * with `persist:false` — it must NOT be copied into every visitor's localStorage,
+ * or a later token rotation couldn't take effect for them.
  */
 async function enableIon(
   viewer: Cesium.Viewer,
   token: string,
   statusEl: HTMLElement,
   onTerrain: () => void,
+  persist: boolean,
 ): Promise<void> {
   try {
     Cesium.Ion.defaultAccessToken = token;
@@ -673,7 +678,7 @@ async function enableIon(
     // World terrain.
     viewer.scene.setTerrain(new Cesium.Terrain(Cesium.createWorldTerrainAsync()));
     onTerrain(); // bump the turnpoint columns to their terrain opacity
-    localStorage.setItem('cesiumIonToken', token);
+    if (persist) localStorage.setItem('cesiumIonToken', token);
     statusEl.textContent = 'Cesium Ion: satellite imagery + world terrain enabled.';
   } catch (err) {
     statusEl.textContent = `Cesium Ion failed: ${(err as Error).message}`;
@@ -682,14 +687,19 @@ async function enableIon(
 
 function wireTerrain(viewer: Cesium.Viewer, statusEl: HTMLElement, onTerrain: () => void): void {
   const input = $('ionToken') as HTMLInputElement;
+  // Precedence: a token the user pasted (localStorage) overrides the token baked
+  // in at build time via PUBLIC_CESIUM_ION_TOKEN (set in the Render dashboard).
   const saved = localStorage.getItem('cesiumIonToken');
+  const embedded = import.meta.env.PUBLIC_CESIUM_ION_TOKEN;
   if (saved) {
-    input.value = saved;
-    void enableIon(viewer, saved, statusEl, onTerrain);
+    input.value = saved; // only reflect the user's own token in the box
+    void enableIon(viewer, saved, statusEl, onTerrain, true);
+  } else if (embedded) {
+    void enableIon(viewer, embedded, statusEl, onTerrain, false);
   }
   $('applyTerrain').addEventListener('click', () => {
     const token = input.value.trim();
-    if (token) void enableIon(viewer, token, statusEl, onTerrain);
+    if (token) void enableIon(viewer, token, statusEl, onTerrain, true);
   });
 }
 
