@@ -650,9 +650,46 @@ table.stats td.name {
   color: var(--text);
 }
 
-/* Altitude-vs-time plot, linked to the map's time slider. */
-.alt-plot {
+/* Chart dock: toggle header + resizable body holding the altitude / time-to-go
+   plot, linked to the map's time slider. */
+.chart-dock {
   margin-top: 0.75rem;
+}
+
+.chart-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.chart-toggle-btn {
+  font: inherit;
+  font-size: 0.8rem;
+  padding: 0.2rem 0.7rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.chart-toggle-btn.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.chart-dock-body {
+  position: relative;
+  height: 200px; /* default; user-resizable via the grip (persisted) */
+}
+
+/* Each plot fills the dock body; the canvas takes the height below its title. */
+.chart-dock-body .alt-plot {
+  margin: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 
 .alt-plot-title {
@@ -665,12 +702,38 @@ table.stats td.name {
 .alt-plot-canvas {
   display: block;
   width: 100%;
-  height: 200px;
+  flex: 1 1 auto;
+  min-height: 0;
   border-radius: 10px;
   border: 1px solid var(--border-strong);
   background: #faf6ec;
   cursor: ew-resize;
   touch-action: none;
+}
+
+/* Resize handle above the play row: a full-width hit area with a small centred
+   pill as the visible grab. */
+.chart-dock-grip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 6px;
+  margin: 0.2rem 0 0;
+  cursor: ns-resize;
+  touch-action: none;
+}
+
+.chart-dock-grip::before {
+  content: '';
+  width: 44px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border-strong);
+  opacity: 0.5;
+}
+
+.chart-dock-grip:hover::before {
+  opacity: 0.9;
 }
 
 /* Archive index listing. */
@@ -758,8 +821,8 @@ table.stats td.name {
     height: 320px;
   }
 
-  .alt-plot-canvas {
-    height: 160px;
+  .chart-dock-body {
+    height: 180px;
   }
 
   table.stats {

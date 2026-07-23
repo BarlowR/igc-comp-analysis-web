@@ -17,6 +17,7 @@ import {
 import * as L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { optimizeTaskRoute } from '../lib/math';
+import { lostSeries } from '../lib/timetogo';
 import {
   Competition,
   CLIMB_RATE_TICKS,
@@ -538,14 +539,21 @@ export function mountTimeline(
     sweepMs = valToDur(Number(speed.value));
   });
   const speedWrap = document.createElement('span');
-  speedWrap.style.cssText = 'margin-left:auto;display:flex;align-items:center;gap:0.3rem';
+  speedWrap.style.cssText = 'display:flex;align-items:center;gap:0.3rem';
   const slow = document.createElement('span');
   slow.textContent = '🐢';
   const fast = document.createElement('span');
   fast.textContent = '🐇';
   speedWrap.append(slow, speed, fast);
 
-  bar.append(playBtn, label, speedWrap);
+  // Chart selector (Altitude / Time-to-go) lives inline in this row, right of the
+  // speed slider; the clock is pushed to the far right.
+  const toggleWrap = document.createElement('span');
+  toggleWrap.className = 'chart-toggle';
+  label.style.marginLeft = 'auto';
+
+  // One row: play · speed slider · chart selector · clock (right-aligned).
+  bar.append(playBtn, speedWrap, toggleWrap, label);
   afterEl.insertAdjacentElement('afterend', bar);
 
   // Current scrub time. Starts at the task start gate (falling back to the first
@@ -557,17 +565,88 @@ export function mountTimeline(
     render();
   };
 
-  // Altitude profile below the bar, sharing the same time axis, colours and
-  // selection so it stays in lockstep — and acting as the slider.
-  const drawAlt = createAltitudePlot(bar, data, tMin, tMax, sel, colors, (ms) => {
+  // Chart dock below the bar: a toggle (Altitude / Time-to-go) over a resizable
+  // body holding whichever plot is active. Both plots share the time axis,
+  // colours, selection and scrubbing, and act as the slider.
+  const scrub = (ms: number): void => {
     stop(); // a manual scrub interrupts playback
     setTime(ms);
+  };
+  const dock = document.createElement('div');
+  dock.className = 'chart-dock';
+  const body = document.createElement('div');
+  body.className = 'chart-dock-body';
+  const grip = document.createElement('div');
+  grip.className = 'chart-dock-grip';
+  grip.title = 'Drag to resize';
+  dock.append(body);
+  bar.insertAdjacentElement('afterend', dock);
+  bar.insertAdjacentElement('beforebegin', grip); // resize grip sits above the play row
+
+  // Restore a user-set height (persisted across visits); CSS supplies the default.
+  const HKEY = 'chartDockHeight';
+  const savedH = Number(localStorage.getItem(HKEY));
+  if (Number.isFinite(savedH) && savedH >= 120) body.style.height = `${savedH}px`;
+
+  const drawAlt = createAltitudePlot(body, data, tMin, tMax, sel, colors, scrub);
+  const drawTtg = data.timeToGo ? createTimeToGoPlot(body, data, tMin, tMax, sel, colors, scrub) : null;
+  const plots: { label: string; draw: (t: number) => void }[] = [{ label: 'Altitude', draw: drawAlt }];
+  if (drawTtg) plots.push({ label: 'Time-to-go', draw: drawTtg });
+  const wraps = Array.from(body.children) as HTMLElement[]; // one .alt-plot per plot, in order
+
+  let active = 0;
+  const btns: HTMLButtonElement[] = [];
+  const showActive = (): void => {
+    wraps.forEach((w, i) => (w.style.display = i === active ? '' : 'none'));
+    btns.forEach((b, i) => b.classList.toggle('on', i === active));
+    plots[active].draw(currentMs);
+  };
+  if (plots.length > 1) {
+    plots.forEach((p, i) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'chart-toggle-btn';
+      b.textContent = p.label;
+      b.addEventListener('click', () => {
+        active = i;
+        showActive();
+      });
+      btns.push(b);
+      toggleWrap.appendChild(b);
+    });
+  }
+
+  // Resize: drag the grip to change the dock body height (persisted).
+  let resizing = false;
+  let startY = 0;
+  let startH = 0;
+  grip.addEventListener('pointerdown', (e) => {
+    resizing = true;
+    startY = e.clientY;
+    startH = body.getBoundingClientRect().height;
+    grip.setPointerCapture(e.pointerId);
+    e.preventDefault();
   });
+  grip.addEventListener('pointermove', (e) => {
+    if (!resizing) return;
+    // Grip sits above the play row: dragging up (clientY decreases) enlarges the chart.
+    body.style.height = `${Math.max(120, Math.min(600, startH - (e.clientY - startY)))}px`;
+  });
+  const endResize = (e: PointerEvent): void => {
+    if (!resizing) return;
+    resizing = false;
+    if (grip.hasPointerCapture(e.pointerId)) grip.releasePointerCapture(e.pointerId);
+    localStorage.setItem(HKEY, String(Math.round(body.getBoundingClientRect().height)));
+  };
+  grip.addEventListener('pointerup', endResize);
+  grip.addEventListener('pointercancel', endResize);
+
+  showActive();
 
   const render = (): void => {
     label.textContent = formatClock(currentMs, data.utcOffsetMinutes);
     frame(currentMs);
-    drawAlt(currentMs); // keep the linked altitude plot in sync
+    plots[active].draw(currentMs); // keep the active plot in sync
   };
 
   // Re-run the frame when the selection (or highlight) changes at a fixed time.
@@ -716,7 +795,7 @@ function niceTicks(min: number, max: number, count: number): number[] {
  * with the map.
  */
 function createAltitudePlot(
-  afterEl: HTMLElement,
+  parent: HTMLElement,
   data: MapData,
   tMin: number,
   tMax: number,
@@ -732,7 +811,7 @@ function createAltitudePlot(
   const canvas = document.createElement('canvas');
   canvas.className = 'alt-plot-canvas';
   wrap.append(title, canvas);
-  afterEl.insertAdjacentElement('afterend', wrap);
+  parent.appendChild(wrap);
 
   const ctx = canvas.getContext('2d')!;
 
@@ -940,6 +1019,363 @@ function createAltitudePlot(
   };
   canvas.addEventListener('pointerup', endDrag);
   canvas.addEventListener('pointercancel', endDrag);
+
+  return draw;
+}
+
+/**
+ * A canvas "time lost vs par" plot: per pilot, L(t) = τ(t) + (t − t_gate)/60 −
+ * τ_ref (minutes), i.e. cumulative time lost against a single common par ghost.
+ * Flat = flying at par, rising = losing time, falling = gaining; the finish dot
+ * is the pilot's final deficit. (This normalises out the raw τ's slope −1, so par
+ * is the flat L = 0 line.) Finisher lines truncate at ESS. Shares the time axis,
+ * colours, selection and scrubbing with the altitude plot. Requires
+ * `data.timeToGo` (precomputed server-side); returns `draw(t)`.
+ */
+function createTimeToGoPlot(
+  parent: HTMLElement,
+  data: MapData,
+  tMin: number,
+  tMax: number,
+  sel: Selection,
+  colors: Map<string, string>,
+  onScrub: (ms: number) => void,
+): (t: number) => void {
+  const wrap = document.createElement('div');
+  wrap.className = 'alt-plot';
+  const title = document.createElement('div');
+  title.className = 'alt-plot-title';
+  title.textContent =
+    'Time lost vs par (min) — par = top-10 median (start→finish); below = ahead, above = behind; dashed = final glide; drag to scrub';
+  const canvas = document.createElement('canvas');
+  canvas.className = 'alt-plot-canvas';
+  wrap.append(title, canvas);
+  parent.appendChild(wrap);
+  const ctx = canvas.getContext('2d')!;
+
+  const tracks = data.tracks.filter((tr) => tr.tau && tr.tau.length === tr.times.length);
+  // Drawable extent: finishers stop at ESS (completionMs), others run to landing.
+  const endIdx = (tr: MapTrack): number => {
+    if (tr.completionMs == null) return tr.times.length;
+    let i = 0;
+    while (i < tr.times.length && tr.times[i] <= tr.completionMs) i++;
+    return Math.max(i, 2);
+  };
+  const ends = new Map<string, number>(tracks.map((tr) => [tr.pilot, endIdx(tr)]));
+  // First fix drawn: the pilot's SSS crossing (scored start) — the pre-start hold
+  // before this shows nothing meaningful. Clamped to leave at least a short line.
+  const startIdx = (tr: MapTrack): number => {
+    if (tr.startCrossMs == null) return 0;
+    let i = 0;
+    while (i < tr.times.length && tr.times[i] < tr.startCrossMs) i++;
+    return Math.min(i, Math.max(0, (ends.get(tr.pilot) ?? tr.times.length) - 2));
+  };
+  const starts = new Map<string, number>(tracks.map((tr) => [tr.pilot, startIdx(tr)]));
+
+  // Minutes behind the par ghost (L), via the centralised lostSeries in timetogo.ts.
+  const tauRef = data.timeToGo?.tauRef ?? 0;
+  const gate = data.startMs ?? tMin;
+  const Ls = new Map<string, number[]>(
+    tracks.map((tr) => [tr.pilot, lostSeries(tr.tau!, tr.times, gate, tauRef)]),
+  );
+  const valOf = (tr: MapTrack, i: number): number => Ls.get(tr.pilot)![i];
+
+  // Par reference = the median top-10 finisher's line, from their median START
+  // point (time, L) to their median FINISH point. The top-10 straddle it, so the
+  // gap to this line reads as minutes ahead of / behind the median winner. Drawn
+  // as a single diagonal (not the old flat L=0 line): with the height-credit τ, a
+  // finisher's L drifts up ~one climb-time of start height over the flight, so a
+  // horizontal par can only touch one end. A day constant, independent of selection.
+  const medOf = (xs: number[]): number => {
+    const s = [...xs].sort((a, b) => a - b);
+    const n = s.length;
+    return n === 0 ? 0 : n % 2 ? s[(n - 1) / 2] : (s[n / 2 - 1] + s[n / 2]) / 2;
+  };
+  const PAR_N = 10;
+  const parFinishers = tracks
+    .filter((tr) => tr.completionMs != null)
+    .sort((a, b) => a.completionMs! - b.completionMs!)
+    .slice(0, PAR_N);
+  let par: { a: [number, number]; b: [number, number] } | null = null;
+  if (parFinishers.length) {
+    const sT: number[] = [];
+    const sL: number[] = [];
+    const fT: number[] = [];
+    const fL: number[] = [];
+    for (const tr of parFinishers) {
+      const s = starts.get(tr.pilot)!;
+      const e = ends.get(tr.pilot)!;
+      sT.push(tr.times[s]);
+      sL.push(valOf(tr, s));
+      fT.push(tr.completionMs ?? tr.times[e - 1]);
+      fL.push(valOf(tr, e - 1));
+    }
+    par = { a: [medOf(sT), medOf(sL)], b: [medOf(fT), medOf(fL)] };
+  }
+
+  // Both axes clip to the SELECTED pilots so a few bunched leaders fill the chart
+  // (in time and in τ) instead of being squashed by the whole field's span. Falls
+  // back to all tracks when nothing is selected. Recomputed on selection change.
+  let yMin = 0;
+  let yMax = 1;
+  let tXMin = tMin;
+  let tXMax = tMax;
+  const recomputeBounds = (): void => {
+    const chosen = tracks.filter((tr) => sel.has(tr.pilot));
+    const pool = chosen.length ? chosen : tracks;
+    let lo = Infinity;
+    let hi = -Infinity;
+    let xlo = Infinity;
+    let xhi = -Infinity;
+    for (const tr of pool) {
+      const e = ends.get(tr.pilot)!;
+      const s = starts.get(tr.pilot)!;
+      if (e > s) {
+        if (tr.times[s] < xlo) xlo = tr.times[s];
+        if (tr.times[e - 1] > xhi) xhi = tr.times[e - 1];
+      }
+      for (let i = s; i < e; i++) {
+        const v = valOf(tr, i);
+        if (!Number.isFinite(v)) continue;
+        if (v < lo) lo = v;
+        if (v > hi) hi = v;
+      }
+    }
+    if (!Number.isFinite(lo)) {
+      lo = 0;
+      hi = 1;
+    }
+    const pad = (hi - lo) * 0.06 || 1;
+    yMin = lo - pad;
+    yMax = hi + pad;
+    tXMin = Number.isFinite(xlo) ? xlo : tMin;
+    tXMax = Number.isFinite(xhi) && xhi > xlo ? xhi : tXMin + 1;
+  };
+  recomputeBounds();
+
+  const PAD = { l: 48, r: 10, t: 8, b: 6 };
+  let plotW = 0;
+  let plotH = 0;
+  let lastT = tMax;
+  let base: HTMLCanvasElement | null = null;
+
+  const xOf = (time: number): number => PAD.l + ((time - tXMin) / (tXMax - tXMin)) * plotW;
+  const yOf = (v: number): number => PAD.t + (1 - (v - yMin) / (yMax - yMin)) * plotH;
+
+  const linePts = (tr: MapTrack): [number, number][] => {
+    const e = ends.get(tr.pilot)!;
+    const pts: [number, number][] = [];
+    for (let i = starts.get(tr.pilot)!; i < e; i++) pts.push([xOf(tr.times[i]), yOf(valOf(tr, i))]);
+    return pts;
+  };
+
+  // Interpolated L at time `t` (null outside the drawn extent).
+  const Lat = (tr: MapTrack, t: number): number | null => {
+    const e = ends.get(tr.pilot)!;
+    const s = starts.get(tr.pilot)!;
+    const { times, tau } = tr;
+    if (!tau || e <= s || t < times[s] || t > times[e - 1]) return null;
+    let lo = s;
+    let hi = e - 1;
+    while (hi - lo > 1) {
+      const m = (lo + hi) >> 1;
+      if (times[m] <= t) lo = m;
+      else hi = m;
+    }
+    const span = times[hi] - times[lo];
+    const a = valOf(tr, lo);
+    const b = valOf(tr, hi);
+    return span ? a + ((t - times[lo]) / span) * (b - a) : a;
+  };
+
+  const strokePath = (c: CanvasRenderingContext2D, pts: [number, number][]): void => {
+    if (pts.length < 2) return;
+    c.beginPath();
+    c.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 1; i < pts.length; i++) c.lineTo(pts[i][0], pts[i][1]);
+    c.stroke();
+  };
+
+  const buildBase = (): void => {
+    const b = document.createElement('canvas');
+    b.width = canvas.width;
+    b.height = canvas.height;
+    const bc = b.getContext('2d')!;
+    const dpr = canvas.width / Math.max(1, canvas.clientWidth);
+    bc.scale(dpr, dpr);
+    bc.lineJoin = 'round';
+    bc.lineCap = 'round';
+    bc.font = '11px system-ui, sans-serif';
+    bc.textAlign = 'right';
+    bc.textBaseline = 'middle';
+    for (const v of niceTicks(yMin, yMax, 4)) {
+      const y = yOf(v);
+      bc.strokeStyle = 'rgba(20, 12, 12, 0.08)';
+      bc.lineWidth = 1;
+      strokePath(bc, [[PAD.l, y], [PAD.l + plotW, y]]);
+      bc.fillStyle = '#6b625e';
+      bc.fillText(String(Math.round(v)), PAD.l - 6, y);
+    }
+    // Grey full lines for context.
+    bc.strokeStyle = 'rgba(154, 148, 138, 0.4)';
+    bc.lineWidth = 1;
+    for (const tr of tracks) strokePath(bc, linePts(tr));
+    // Par reference: the diagonal through the top-10 median start and finish
+    // points, extended across the plot. The gap from a pilot's line to this is
+    // minutes ahead of (below) / behind (above) the median winner.
+    if (par) {
+      const slope = par.b[0] !== par.a[0] ? (par.b[1] - par.a[1]) / (par.b[0] - par.a[0]) : 0;
+      const lAt = (time: number): number => par!.a[1] + slope * (time - par!.a[0]);
+      bc.strokeStyle = 'rgba(20, 12, 12, 0.4)';
+      bc.lineWidth = 1.5;
+      bc.setLineDash([5, 3]);
+      strokePath(bc, [[xOf(tXMin), yOf(lAt(tXMin))], [xOf(tXMax), yOf(lAt(tXMax))]]);
+      bc.setLineDash([]);
+      bc.fillStyle = '#6b655c';
+      bc.font = '10px system-ui, sans-serif';
+      bc.textAlign = 'left';
+      bc.textBaseline = 'bottom';
+      bc.fillText('par (top-10 median)', xOf(par.a[0]) + 3, yOf(par.a[1]) - 2);
+    }
+    // Start-gate marker (green), matching the SSS cylinder.
+    if (data.startMs != null && data.startMs >= tMin && data.startMs <= tMax) {
+      const sx = xOf(data.startMs);
+      bc.strokeStyle = '#2e7d32';
+      bc.lineWidth = 1.5;
+      bc.setLineDash([4, 3]);
+      strokePath(bc, [[sx, PAD.t], [sx, PAD.t + plotH]]);
+      bc.setLineDash([]);
+    }
+    base = b;
+  };
+
+  const draw = (t: number): void => {
+    lastT = t;
+    if (!base || plotW <= 0) return;
+    const dpr = canvas.width / Math.max(1, canvas.clientWidth);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(base, 0, 0);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+
+    const highlight = sel.highlight();
+    const selected = tracks.filter((tr) => sel.has(tr.pilot));
+    const order = highlight
+      ? [...selected.filter((tr) => tr.pilot !== highlight), ...selected.filter((tr) => tr.pilot === highlight)]
+      : selected;
+    for (const tr of order) {
+      ctx.strokeStyle = colors.get(tr.pilot) ?? PALETTE[0];
+      ctx.lineWidth = tr.pilot === highlight ? 2.5 : 1.8;
+      const fg = tr.finalGlide;
+      const e = ends.get(tr.pilot)!;
+      const s = starts.get(tr.pilot)!;
+      if (!fg) {
+        strokePath(ctx, linePts(tr));
+      } else {
+        // Solid normally, DASHED where the pilot is above the glide slope (final
+        // glide = "altitude is useless"). Draw contiguous runs, each starting one
+        // point back so there's no gap at the transitions between regimes.
+        let i = s;
+        while (i < e) {
+          const on = fg[i];
+          let j = i + 1;
+          while (j < e && fg[j] === on) j++;
+          const start = i > s ? i - 1 : i;
+          ctx.setLineDash(on ? [6, 4] : []);
+          ctx.beginPath();
+          ctx.moveTo(xOf(tr.times[start]), yOf(valOf(tr, start)));
+          for (let k = start + 1; k < j; k++) ctx.lineTo(xOf(tr.times[k]), yOf(valOf(tr, k)));
+          ctx.stroke();
+          i = j;
+        }
+        ctx.setLineDash([]);
+      }
+    }
+
+    const square = (x: number, y: number, size: number, color: string): void => {
+      ctx.fillStyle = color;
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1.5;
+      ctx.fillRect(x - size / 2, y - size / 2, size, size);
+      ctx.strokeRect(x - size / 2, y - size / 2, size, size);
+    };
+    // Finish markers: a square at each selected finisher's ESS crossing.
+    for (const tr of order) {
+      if (tr.completionMs == null) continue;
+      const e = ends.get(tr.pilot)!;
+      const sz = tr.pilot === highlight ? 9 : 7;
+      square(xOf(tr.times[e - 1]), yOf(valOf(tr, e - 1)), sz, colors.get(tr.pilot) ?? PALETTE[0]);
+    }
+
+    // Time cursor.
+    const cx = xOf(t);
+    ctx.strokeStyle = 'rgba(20, 12, 12, 0.45)';
+    ctx.lineWidth = 1;
+    strokePath(ctx, [[cx, PAD.t], [cx, PAD.t + plotH]]);
+
+    // Dots at the current L for selected pilots still in the race.
+    for (const tr of order) {
+      const v = Lat(tr, t);
+      if (v == null) continue;
+      ctx.fillStyle = colors.get(tr.pilot) ?? PALETTE[0];
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(cx, yOf(v), tr.pilot === highlight ? 5 : 3.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+  };
+
+  const resize = (): void => {
+    const cssW = canvas.clientWidth;
+    const cssH = canvas.clientHeight;
+    if (cssW === 0 || cssH === 0) return;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.round(cssW * dpr);
+    canvas.height = Math.round(cssH * dpr);
+    plotW = cssW - PAD.l - PAD.r;
+    plotH = cssH - PAD.t - PAD.b;
+    buildBase();
+    draw(lastT);
+  };
+  new ResizeObserver(() => resize()).observe(canvas);
+  requestAnimationFrame(resize);
+
+  const timeFromX = (clientX: number): number => {
+    if (plotW <= 0) return tXMin;
+    const x = clientX - canvas.getBoundingClientRect().left - PAD.l;
+    return tXMin + Math.min(1, Math.max(0, x / plotW)) * (tXMax - tXMin);
+  };
+  let dragging = false;
+  canvas.addEventListener('pointerdown', (e) => {
+    dragging = true;
+    canvas.setPointerCapture(e.pointerId);
+    onScrub(timeFromX(e.clientX));
+  });
+  canvas.addEventListener('pointermove', (e) => {
+    if (dragging) onScrub(timeFromX(e.clientX));
+  });
+  const endDrag = (e: PointerEvent): void => {
+    dragging = false;
+    if (canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
+  };
+  canvas.addEventListener('pointerup', endDrag);
+  canvas.addEventListener('pointercancel', endDrag);
+
+  // Selection changes the clipped bounds → rescale (rebuild base) then redraw;
+  // highlight only changes draw order, so a plain redraw is enough.
+  const rescale = (): void => {
+    recomputeBounds();
+    if (plotW > 0 && canvas.clientWidth > 0) {
+      buildBase();
+      draw(lastT);
+    }
+  };
+  sel.subscribe(rescale);
+  sel.onHighlight(() => draw(lastT));
 
   return draw;
 }

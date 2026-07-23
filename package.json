@@ -10,6 +10,7 @@
     "build": "astro build",
     "preview": "astro preview",
     "copy-cesium": "node scripts/copy-cesium-assets.mjs",
+    "test": "node --import ./test/support/register-ts-ext.mjs --test test/*.test.ts",
     "astro": "astro",
     "archive": "node scripts/archive.mjs",
     "airscore": "node scripts/airscore-pull.mjs",

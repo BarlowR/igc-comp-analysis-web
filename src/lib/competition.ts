@@ -5,6 +5,7 @@
 
 import { IgcFlight, type Stats } from './igc';
 import { parseXcTask, type XcTask } from './xctsk';
+import { buildGeom, taskDistanceM, remainingSeries, smoothAlt, tauSeries } from './timetogo';
 
 /** Derive a readable fallback pilot name from an IGC filename. */
 export function nameFromFile(filename: string): string {
@@ -44,6 +45,18 @@ export const COMP_SUBSET: { key: string; dir: GradientDir; label: string }[] = [
 const CLIMB_RATE_LABELS = ['1ms', '2ms', '3ms', '4ms', '5ms', '>5ms'];
 export const CLIMB_RATE_TICKS = ['1 m/s', '2 m/s', '3 m/s', '4 m/s', '5 m/s', '>5 m/s'];
 
+// Final-glide height cap on the time-to-go metric. Height is credited (at 1/M) only
+// up to what's needed to glide to goal, h_need = h_fin + D_rem·g (g = 1/ratio);
+// surplus above that slope is worth `FINAL_GLIDE_BETA` of the normal rate (0 =
+// nothing). Above the slope the pilot is "on final glide" — the altitude-is-useless
+// regime the chart and 3D track highlight.
+const FINAL_GLIDE_RATIO = 7; // glide gradient; g = 1/7
+const FINAL_GLIDE_BETA = 0.05; // surplus-height discount [0,1]
+// Physical final-glide ground-speed cap (km/h). τ is floored at D_rem/this so the
+// on-slope credit can't imply a superhuman glide — the MacCready-inverted glide
+// speed V_cc·M/(M − g·V_cc) diverges at paraglider glide ratios. See timetogo.ts.
+const FINAL_GLIDE_SPEED_KMH = 60;
+
 export interface PilotRow {
   name: string;
   completed: boolean;
@@ -75,6 +88,17 @@ export interface MapTrack {
   times: number[];
   /** GPS altitude (m) for each point, aligned with `points`. */
   alt: number[];
+  /** Time-to-go at par (minutes) at each point, aligned with `points`; absent if
+   * the day has no usable ESS/finisher data. See timetogo.ts. */
+  tau?: number[];
+  /** Epoch-ms of the ESS crossing (scored completion), or null if not a finisher. */
+  completionMs?: number | null;
+  /** Epoch-ms of the SSS crossing (scored start); the time-to-go plot cuts the
+   * pre-start hold off before this. Null falls back to drawing from the first fix. */
+  startCrossMs?: number | null;
+  /** Per fix: is the pilot above the glide slope (on final glide = "altitude is
+   * useless" regime)? Aligned with `points`. Highlighted in the chart. */
+  finalGlide?: boolean[];
 }
 
 export interface MapData {
@@ -84,6 +108,18 @@ export interface MapData {
   utcOffsetMinutes: number | null;
   /** Epoch-ms of the SSS start gate (for the start-time marker); null if unknown. */
   startMs: number | null;
+  /** Day-level par constants for the time-to-go chart; null if unavailable.
+   * `tauRef` is the common par-ghost anchor (minutes): the par pilot's time-to-go
+   * from the start, `(dTask/Vcc − (hRef − hFin)/M)/60`. See timetogo.ts `lostSeries`;
+   * L(t) = tau(t) + (t − t_gate)/60 − tauRef is "minutes behind the par ghost". */
+  timeToGo: {
+    M: number;
+    Vcc: number;
+    hFin: number;
+    dTask: number; // optimised task distance SSS→ESS (m)
+    hRef: number; // reference start altitude (fleet-median start-gate crossing, m MSL)
+    tauRef: number; // D_task/Vcc/60 − (hRef − hFin)/M/60, minutes
+  } | null;
 }
 
 export interface TableCell {
@@ -235,14 +271,92 @@ export class Competition {
       order: tp.order,
     }));
 
-    const tracks: MapTrack[] = this.pilots
+    // Time-to-go: par constants from the results, then a τ series per track. See
+    // timetogo.ts. Guarded so a task without a usable ESS/finishers just omits it.
+    const geom = buildGeom(turnpoints);
+    const taskDist = geom.cx.length >= 2 ? taskDistanceM(geom) : 0;
+    // Par is measured from the day's fastest PAR_N finishers: M = median climb,
+    // V_cc = optimised task dist ÷ median completion. h_fin = min crossing altitude.
+    const PAR_N = 10;
+    const finishers = this.pilots
+      .filter((p) => p.completed && num(p.stats.completion_time) > 0)
+      .sort((a, b) => num(a.stats.completion_time) - num(b.stats.completion_time));
+    const par = finishers.slice(0, PAR_N);
+    const climbs = par.map((p) => num(p.stats.comp_average_climb_rate)).filter(Number.isFinite);
+    const compTimes = par.map((p) => num(p.stats.completion_time)).filter((v) => Number.isFinite(v) && v > 0);
+    const finishes = finishers.map((p) => num(p.stats.comp_finish_msl)).filter(Number.isFinite);
+    const M = median(climbs);
+    const medComp = median(compTimes);
+    const Vcc = medComp > 0 ? taskDist / medComp : 0;
+    const hFin = finishes.length ? Math.min(...finishes) : 0;
+    const hasTau = geom.cx.length >= 2 && M > 0 && Vcc > 0 && finishers.length > 0;
+
+    // Per-pilot D_rem + smoothed height (used for τ, finalGlide, and the SSS-exit
+    // altitude), computed once so the ghost anchor h_ref can be taken across the fleet.
+    const startCrossOf = (p: PilotRow): number | null => {
+      if (p.startGateMs == null) return null;
+      const sa = num(p.stats.comp_seconds_after_gate);
+      return p.startGateMs + (Number.isFinite(sa) ? sa * 1000 : 0);
+    };
+    const perPilot = this.pilots
       .filter((p) => p.track.length > 0)
-      .map((p) => ({ pilot: p.name, completed: p.completed, points: p.track, times: p.trackTimes, alt: p.trackAlt }));
+      .map((p) => {
+        const rem = hasTau ? remainingSeries(geom, p.track) : [];
+        const h = hasTau ? smoothAlt(p.trackTimes, p.trackAlt) : [];
+        const startCrossMs = startCrossOf(p);
+        let startExitAlt: number | null = null;
+        if (hasTau && startCrossMs != null) {
+          let si = 0;
+          while (si < p.trackTimes.length && p.trackTimes[si] < startCrossMs) si++;
+          if (si < h.length) startExitAlt = h[si];
+        }
+        return { p, rem, h, startCrossMs, startExitAlt };
+      });
+
+    // Ghost anchor: h_ref = fleet-median smoothed altitude at the SSS exit;
+    // tau_ref = par time-to-go from the start (one common value). See lostSeries.
+    const startExitAlts = perPilot
+      .map((c) => c.startExitAlt)
+      .filter((v): v is number => v != null && Number.isFinite(v));
+    const hRef = startExitAlts.length ? median(startExitAlts) : hFin;
+    const tauRef = hasTau && Vcc > 0 ? (taskDist / Vcc - (hRef - hFin) / M) / 60 : 0;
+
+    const gSlope = 1 / FINAL_GLIDE_RATIO;
+    const tracks: MapTrack[] = perPilot.map(({ p, rem, h, startCrossMs }) => {
+      const base: MapTrack = {
+        pilot: p.name,
+        completed: p.completed,
+        points: p.track,
+        times: p.trackTimes,
+        alt: p.trackAlt,
+      };
+      if (!hasTau) return base;
+      base.tau = tauSeries(rem, h, {
+        vccMps: Vcc,
+        climbMps: M,
+        hFinM: hFin,
+        glideRatio: FINAL_GLIDE_RATIO,
+        beta: FINAL_GLIDE_BETA,
+        glideSpeedKmh: FINAL_GLIDE_SPEED_KMH,
+      }).map((v) => Math.round(v * 100) / 100);
+      base.finalGlide = rem.map((d, i) => h[i] > hFin + d * gSlope);
+      const ct = num(p.stats.completion_time);
+      base.completionMs =
+        p.completed && Number.isFinite(ct) && p.startGateMs != null ? p.startGateMs + ct * 1000 : null;
+      base.startCrossMs = startCrossMs;
+      return base;
+    });
 
     // All pilots share the same gate time-of-day; take the first finite one.
     const startMs = this.pilots.find((p) => p.startGateMs != null)?.startGateMs ?? null;
 
-    return { turnpoints, tracks, utcOffsetMinutes: this.utcOffsetMinutes, startMs };
+    return {
+      turnpoints,
+      tracks,
+      utcOffsetMinutes: this.utcOffsetMinutes,
+      startMs,
+      timeToGo: hasTau ? { M, Vcc, hFin, dTask: taskDist, hRef, tauRef } : null,
+    };
   }
 
   // ---- stats table -------------------------------------------------------
@@ -396,6 +510,13 @@ export class Competition {
 function num(v: unknown): number {
   if (v === null || v === undefined) return NaN;
   return typeof v === 'number' ? v : Number(v);
+}
+
+function median(xs: number[]): number {
+  if (!xs.length) return NaN;
+  const s = [...xs].sort((a, b) => a - b);
+  const m = s.length >> 1;
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
 }
 
 const PRE_START_MS = 15 * 60 * 1000; // show 15 min before the start gate
