@@ -45,7 +45,7 @@ async function load(): Promise<void> {
       }
     });
     progress.remove();
-    renderArchivedResults({ results: data, resultsEl: results, statusEl });
+    renderArchivedResults({ results: data, resultsEl: results, statusEl, threeDUrl: `${entry.base}/3d` });
   } catch (err) {
     console.error(err);
     progress.remove();

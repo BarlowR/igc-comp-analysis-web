@@ -86,11 +86,13 @@ export function renderArchivedResults(opts: {
   results: ArchivedResults;
   resultsEl: HTMLElement;
   statusEl?: HTMLElement;
+  /** URL of the 3D viewer for this day; adds a "View in 3D" link to the map card. */
+  threeDUrl?: string;
 }): void {
-  const { results, resultsEl, statusEl } = opts;
+  const { results, resultsEl, statusEl, threeDUrl } = opts;
   const n = results.table.completed.length + results.table.incomplete.length;
   if (statusEl) statusEl.textContent = `Loaded ${n} pilot${n === 1 ? '' : 's'}.`;
-  render(resultsEl, statusEl, results.table, results.climb, results.map, results.timeLoss);
+  render(resultsEl, statusEl, results.table, results.climb, results.map, results.timeLoss, threeDUrl);
 }
 
 /**
@@ -246,6 +248,7 @@ function render(
   climb: ClimbData,
   mapData: MapData,
   timeLoss: TimeLossData,
+  threeDUrl?: string,
 ): void {
   for (const c of charts) c.destroy();
   charts = [];
@@ -266,7 +269,7 @@ function render(
     resultsEl.appendChild(group('Completed Task', table, table.completed, true, climb.completed, sel, colors, timeLoss));
   }
   if (mapData.turnpoints.length || mapData.tracks.length) {
-    resultsEl.appendChild(mapSection(mapData, sel, colors));
+    resultsEl.appendChild(mapSection(mapData, sel, colors, threeDUrl));
   }
   if (table.incomplete.length || climb.incomplete.length) {
     resultsEl.appendChild(group('Did Not Complete Task', table, table.incomplete, false, climb.incomplete, sel, colors, timeLoss));
@@ -275,14 +278,36 @@ function render(
 }
 
 /** Build the "Task & Tracks" card and initialise the Leaflet map inside it. */
-function mapSection(data: MapData, sel: Selection, colors: Map<string, string>): HTMLElement {
+function mapSection(
+  data: MapData,
+  sel: Selection,
+  colors: Map<string, string>,
+  threeDUrl?: string,
+): HTMLElement {
   const card = document.createElement('section');
   card.className = 'card';
+  const head = document.createElement('div');
+  head.className = 'map-head';
   const h = document.createElement('h2');
   h.textContent = 'Task & Tracks';
+  head.appendChild(h);
+  if (threeDUrl) {
+    const link = document.createElement('a');
+    link.className = 'map-3d-link';
+    link.href = threeDUrl;
+    const icon = document.createElement('span');
+    icon.setAttribute('aria-hidden', 'true');
+    icon.textContent = '◈';
+    const arrow = document.createElement('span');
+    arrow.className = 'map-3d-arrow';
+    arrow.setAttribute('aria-hidden', 'true');
+    arrow.textContent = '→';
+    link.append(icon, document.createTextNode(' View in 3D '), arrow);
+    head.appendChild(link);
+  }
   const holder = document.createElement('div');
   holder.className = 'map-holder';
-  card.append(h, holder);
+  card.append(head, holder);
 
   // Leaflet must initialise against an element already in the DOM with a size,
   // so defer until after this card is appended and laid out.
