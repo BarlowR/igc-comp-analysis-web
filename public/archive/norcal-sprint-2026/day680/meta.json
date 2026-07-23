@@ -1,0 +1,28 @@
+{
+  "comp": "norcal-sprint-2026",
+  "compLabel": "2026 NorCal Sprint League",
+  "day": "day680",
+  "dayLabel": "Potato Hill \u2014 Jul 19",
+  "date": "2026-07-19",
+  "title": "2026-07-19 - Potato Hill - Race to Goal 30.307km",
+  "utcOffsetMinutes": -420,
+  "taskFile": "task.xctsk",
+  "igcFiles": [
+    "(Bruno) Subarno.1177.131.igc",
+    "David Suder.676.148.igc",
+    "Eyal Posener.1165.146.igc",
+    "Gregory Elsbecker.593.129.igc",
+    "Jack Ellingson.1108.169.igc",
+    "Jacob Carrico.1041.130.igc",
+    "Jan Passion.256.113.igc",
+    "Jeremy Bernstein.1014.128.igc",
+    "Kenny Kim.681.117.igc",
+    "Klaus Ashorn.1011.165.igc",
+    "Lori Elling.1090.101.igc",
+    "Sheth.1196.174.igc",
+    "Ulrike Egerer.1193.171.igc",
+    "Walter Gutierrez.1127.126.igc",
+    "casey gerstle.1019.124.igc"
+  ],
+  "hidden": true
+}

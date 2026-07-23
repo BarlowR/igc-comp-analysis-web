@@ -13,9 +13,11 @@ interface Entry {
   notes?: string;
   taskFile: string;
   igcFiles: string[];
+  /** Unlisted: the day page still builds (URL works), but it's hidden from this index. */
+  hidden?: boolean;
 }
 
-const entries = manifest as unknown as Entry[];
+const entries = (manifest as unknown as Entry[]).filter((e) => !e.hidden);
 
 // Group by competition, preserving manifest order within each.
 const byComp = new Map<string, { label: string; days: Entry[] }>();
