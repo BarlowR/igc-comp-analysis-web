@@ -86,13 +86,32 @@ async function main(): Promise<void> {
   loading.step('Building the globe…');
   const viewer = createViewer();
   loading.step(`Placing ${tracks.length} tracks…`);
-  const setTaskTerrainMode = drawTask(viewer, mapData.turnpoints, columnTop);
+  const task = drawTask(viewer, mapData.turnpoints, columnTop);
 
   // The current scrub time, kept in sync by the timeline's frame callback; the
   // trail CallbackProperty and the follow-cam both read it.
   let scrubMs = NaN;
   const ents = drawTracks(viewer, tracks, colors, () => scrubMs);
   const byPilot = new Map(ents.map((e) => [e.pilot, e]));
+
+  // Emphasise the turnpoint the PINNED pilot is flying to at the current time
+  // (their next un-tagged cylinder), dimming the rest. No pin → all columns even.
+  const tagsCache = new Map<string, number[]>();
+  const updateTaskTarget = (t: number): void => {
+    const h = sel.highlight();
+    if (!h || !Number.isFinite(t)) {
+      task.setTarget(null);
+      return;
+    }
+    let tags = tagsCache.get(h);
+    if (!tags) {
+      const tr = byPilot.get(h)?.track;
+      tags = tr ? turnpointTagTimes(tr, mapData.turnpoints, mapData.startMs) : [];
+      tagsCache.set(h, tags);
+    }
+    task.setTarget(nextTurnpointIdx(tags, t));
+  };
+  sel.onHighlight(() => updateTaskTarget(scrubMs));
   // Set once the pilot list is built; refreshes its climb/speed cells per frame.
   let refreshStats: (t: number) => void = () => {};
 
@@ -222,6 +241,7 @@ async function main(): Promise<void> {
       // Only the pinned pilot gets a floating name label (avoids 20-label clutter).
       pe.marker.label!.show = new Cesium.ConstantProperty(isH);
     }
+    updateTaskTarget(t);
     refreshStats(t);
   };
 
@@ -261,7 +281,7 @@ async function main(): Promise<void> {
   });
 
   viewer.flyTo(viewer.entities, { duration: 1.5 });
-  void enableTerrain(viewer, statusEl, () => setTaskTerrainMode(true));
+  void enableTerrain(viewer, statusEl, () => task.setTerrain(true));
 
   const field = truncated ? `Top ${topN} of ${ordered.length} pilots` : `${ordered.length} pilots`;
   statusEl.textContent = `${field} — check to show, click a name to pin + follow. Drag the altitude plot or press ▶.`;
@@ -308,6 +328,13 @@ const CYL_LINE_FLAT = 0.55;
 const CYL_LINE_TERRAIN = 0.85;
 const RING_SLICES = 72; // segments around the turnpoint circle
 const CYL_FADE_BAND = 700; // m: a column fades to invisible over this band as the camera nears its wall
+// When a pilot is pinned, the turnpoint they're flying to is emphasised and the
+// rest dimmed, so it's clear where they're headed. No pin → every column at 1.
+// The boost drives the target's rims to solid; the fill is capped below so the
+// emphasised tube stays see-through rather than becoming a wall of colour.
+const CYL_TARGET_BOOST = 3;
+const CYL_OTHER_DIM = 0.25;
+const CYL_FILL_MAX = 0.5;
 
 /** Ring of world positions around a turnpoint centre at `height` (m above ellipsoid). */
 function turnpointRing(lon: number, lat: number, radius: number, height: number): Cesium.Cartesian3[] {
@@ -322,8 +349,60 @@ function turnpointRing(lon: number, lat: number, radius: number, height: number)
 }
 
 /**
- * Draw the turnpoint columns, course line and labels. Returns a
- * `setTerrainMode(on)` that bumps the base column opacity when terrain is enabled.
+ * Epoch-ms when the pilot first enters each turnpoint cylinder, in task order
+ * (Infinity if never reached). Sequential — a turnpoint is only tagged after the
+ * previous one, so the "next" turnpoint reflects the scored order.
+ *
+ * Everything up to and including the SSS is resolved from the pilot's scored
+ * start crossing instead of by proximity. Tracks are cropped to a few minutes
+ * BEFORE the gate, and pilots spend that hold parked inside the takeoff and
+ * start cylinders — so proximity alone tags both on the very first fix and the
+ * start is never the active cylinder. Turnpoints before the SSS (takeoff) are
+ * marked -Infinity: already behind the pilot, never a target.
+ */
+const TAG_MARGIN_M = 200; // downsampled tracks can graze an edge; matches timetogo tagging
+
+function turnpointTagTimes(track: MapTrack, tps: MapTurnpoint[], gateMs: number | null): number[] {
+  const tags = new Array<number>(tps.length).fill(Infinity);
+  let p = 0;
+  let first = 0;
+  const sss = tps.findIndex((tp) => tp.type === 'SSS');
+  const cross = track.startCrossMs ?? gateMs;
+  if (sss >= 0 && cross != null) {
+    for (let i = 0; i < sss; i++) tags[i] = -Infinity;
+    tags[sss] = cross;
+    first = sss + 1;
+    // Resume proximity tagging at the start crossing, so a turnpoint that happens
+    // to sit under the pre-start hold isn't tagged before the pilot leaves.
+    while (p < track.times.length && track.times[p] < cross) p++;
+  }
+  for (let k = first; k < tps.length; k++) {
+    const tp = tps[k];
+    while (p < track.points.length) {
+      const [lat, lon] = track.points[p];
+      if (haversine(lat, lon, tp.lat, tp.lon) <= tp.radius + TAG_MARGIN_M) {
+        tags[k] = track.times[p];
+        break;
+      }
+      p++;
+    }
+    if (tags[k] === Infinity) break; // never reached this one → later ones unreachable too
+    p++;
+  }
+  return tags;
+}
+
+/** Index of the turnpoint the pilot is flying TO at time t (first not-yet-tagged),
+ *  or null once every turnpoint is behind them. */
+function nextTurnpointIdx(tags: number[], t: number): number | null {
+  for (let k = 0; k < tags.length; k++) if (tags[k] > t) return k;
+  return null;
+}
+
+/**
+ * Draw the turnpoint columns, course line and labels. Returns `setTerrain(on)`
+ * (bumps the base column opacity when terrain is enabled) and `setTarget(idx)`
+ * (emphasise the turnpoint the pinned pilot is flying to; `null` clears it).
  *
  * Each column is a `wall` (vertical ribbon around the turnpoint circle, no top
  * or bottom cap) plus crisp top + bottom rim polylines — so the scoring cylinder
@@ -339,7 +418,7 @@ function drawTask(
   viewer: Cesium.Viewer,
   turnpoints: MapTurnpoint[],
   columnTop: number,
-): (terrain: boolean) => void {
+): { setTerrain: (terrain: boolean) => void; setTarget: (idx: number | null) => void } {
   const ellipsoid = viewer.scene.globe.ellipsoid;
   let baseFill = CYL_FILL_FLAT;
   let baseLine = CYL_LINE_FLAT;
@@ -350,6 +429,7 @@ function drawTask(
     lon: number;
     radius: number;
     fade: number; // 0 (camera inside the tube) → 1 (clear of it); set each preRender
+    emphasis: number; // 1 normally; boosted for the pinned pilot's target, dimmed for the rest
     fillScratch: Cesium.Color; // reused so the callbacks don't allocate per frame
     lineScratch: Cesium.Color;
   }
@@ -363,6 +443,7 @@ function drawTask(
       lon: tp.lon,
       radius: tp.radius,
       fade: 1,
+      emphasis: 1,
       fillScratch: color.clone(),
       lineScratch: color.clone(),
     };
@@ -374,7 +455,12 @@ function drawTask(
         minimumHeights: new Array(base.length).fill(0),
         material: new Cesium.ColorMaterialProperty(
           new Cesium.CallbackProperty(
-            () => Cesium.Color.fromAlpha(color, baseFill * col.fade, col.fillScratch),
+            () =>
+              Cesium.Color.fromAlpha(
+                color,
+                Math.min(CYL_FILL_MAX, baseFill * col.fade * col.emphasis),
+                col.fillScratch,
+              ),
             false,
           ),
         ),
@@ -389,7 +475,7 @@ function drawTask(
           arcType: Cesium.ArcType.NONE,
           material: new Cesium.ColorMaterialProperty(
             new Cesium.CallbackProperty(
-              () => Cesium.Color.fromAlpha(color, baseLine * col.fade, col.lineScratch),
+              () => Cesium.Color.fromAlpha(color, Math.min(1, baseLine * col.fade * col.emphasis), col.lineScratch),
               false,
             ),
           ),
@@ -446,11 +532,22 @@ function drawTask(
     }
   });
 
-  // Terrain toggle just swaps the base alpha; the CallbackProperty materials
-  // (base × fade) pick it up on the next render.
-  return (terrain: boolean): void => {
-    baseFill = terrain ? CYL_FILL_TERRAIN : CYL_FILL_FLAT;
-    baseLine = terrain ? CYL_LINE_TERRAIN : CYL_LINE_FLAT;
+  // Terrain toggle just swaps the base alpha; setTarget sets per-column emphasis.
+  // The CallbackProperty materials (base × fade × emphasis) pick both up on the
+  // next render.
+  let lastTarget: number | null | undefined;
+  return {
+    setTerrain(terrain: boolean): void {
+      baseFill = terrain ? CYL_FILL_TERRAIN : CYL_FILL_FLAT;
+      baseLine = terrain ? CYL_LINE_TERRAIN : CYL_LINE_FLAT;
+    },
+    setTarget(idx: number | null): void {
+      if (idx === lastTarget) return;
+      lastTarget = idx;
+      columns.forEach((col, i) => {
+        col.emphasis = idx == null ? 1 : i === idx ? CYL_TARGET_BOOST : CYL_OTHER_DIM;
+      });
+    },
   };
 }
 
