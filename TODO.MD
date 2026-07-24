@@ -46,8 +46,6 @@
       equirectangular (metres) projection. A leading TAKEOFF is dropped so the
       route starts at the SSS cylinder. Cylinders + centre dots are unchanged. 
 
-
-
 - [ ] Hike and Fly Tasks
 
 - [ ] User accounts with annotations
