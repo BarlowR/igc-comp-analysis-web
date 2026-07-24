@@ -10,7 +10,7 @@
 
 - [X] Improve mobile display
 
-- [ ] Make line colors (map and thermal plot) easier to map to pilot.
+- [X] Make line colors (map and thermal plot) easier to map to pilot.
     - Each pilot now keeps one stable color, shared across the map and both
       climb charts. Still no on-map labels (hover a track for the name).
 
@@ -45,3 +45,7 @@
       a point on each circle to minimise total path length, working in a local
       equirectangular (metres) projection. A leading TAKEOFF is dropped so the
       route starts at the SSS cylinder. Cylinders + centre dots are unchanged. 
+
+
+
+- [ ] Hike and Fly Tasks
