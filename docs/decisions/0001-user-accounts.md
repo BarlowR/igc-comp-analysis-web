@@ -81,9 +81,12 @@ cross-comp identity cannot be inferred from the archive; an account **claims**
 `(comp, pilot_slug)` pairs, and those claims are what stitch a pilot's history
 together.
 
-Claims are honour-system at first and render with an "unverified" badge.
-Verification (organiser approval, or matching an email the comp already holds)
-is deferred until it matters.
+Claims are honour-system and non-exclusive, deliberately: any number of accounts
+may claim the same pilot. A duplicate claim costs the real pilot nothing —
+each account only ever sees its own claims — while exclusivity broke legitimate
+cases, since two pilots can share a name slug and one person can have two
+accounts (0002_shared_claims.sql). The `verified` column survives, unsettable
+from the client, as a hook for organiser approval; nothing reads it.
 
 ### Per-pilot results stay static
 

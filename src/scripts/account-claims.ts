@@ -70,11 +70,6 @@ function renderClaims() {
 
     const head = el('div', 'claim-card-head');
     head.appendChild(el('span', 'claim-name', group[0].pilot_label ?? pilot?.label ?? key));
-    if (group.every((c) => !c.verified)) {
-      const badge = el('span', 'claim-badge', 'unverified');
-      badge.title = 'Nobody has checked that this pilot is you.';
-      head.appendChild(badge);
-    }
 
     const drop = el('button', 'claim-remove', 'Remove');
     drop.type = 'button';
@@ -149,23 +144,17 @@ function renderSearchResults(matches: RosterPilot[]) {
       button.disabled = true;
       setStatus('Claiming…');
       try {
-        const { claimed, taken } = await claimPilot(
+        const { claimed } = await claimPilot(
           pilot.key,
           pilot.label,
           comps.map((c) => c.comp),
         );
         claims = await listMyClaims();
         renderClaims();
-        if (claimed.length === 0) {
-          setStatus('That pilot is already claimed by another account.', 'error');
-        } else if (taken.length > 0) {
-          setStatus(
-            `Claimed ${claimed.length} comp${claimed.length === 1 ? '' : 's'}; ${taken.length} already claimed by someone else.`,
-            'ok',
-          );
-        } else {
-          setStatus('Claimed.', 'ok');
-        }
+        // Comps already on this account are a no-op, not a failure — several
+        // accounts may claim the same pilot, so the only way to "fail" here is
+        // to have claimed it yourself already.
+        setStatus(claimed.length === 0 ? 'Already claimed.' : 'Claimed.', 'ok');
         if (queryEl) queryEl.value = '';
         resultsEl.replaceChildren();
       } catch (err) {

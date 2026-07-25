@@ -76,6 +76,7 @@
         like the day JSONs (a query over public data, so no auth needed); the
         claims from step 2 are what say which slug is you.
 
-  Known gap: two pilots who share a name slug collapse into one identity, and
-  the first account to claim it wins (unique on comp+pilot_key). Claims show an
-  "unverified" badge; there's no verification story yet.
+  Claims are honour-system and shared by choice — any number of accounts can
+  claim the same pilot (0002_shared_claims.sql), since a duplicate claim costs
+  the real pilot nothing and exclusivity broke legitimate cases (two pilots
+  sharing a name slug, one person with two accounts).
