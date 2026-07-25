@@ -3,7 +3,13 @@
 // The site is static, so this is the whole auth flow — supabase-js emails a
 // magic link, the link lands back on /account with ?code=…, and the client
 // exchanges it for a session on load (detectSessionInUrl in lib/supabase.ts).
-import { fetchProfile, getSupabase, isConfigured, saveDisplayName } from '../lib/supabase';
+import {
+  fetchProfile,
+  getSupabase,
+  isConfigured,
+  readCachedSession,
+  saveDisplayName,
+} from '../lib/supabase';
 import { mountClaims } from './account-claims';
 
 const el = <T extends HTMLElement>(id: string) => document.getElementById(id) as T | null;
@@ -54,16 +60,36 @@ let claimsMounted = false;
 async function renderSignedIn(email: string | null) {
   if (emailLabel) emailLabel.textContent = email ?? '';
   show(signedIn);
-  try {
-    const profile = await fetchProfile();
-    if (nameInput) nameInput.value = profile?.display_name ?? '';
-  } catch (err) {
-    setStatus(nameStatus, describe(err), 'error');
-  }
-  if (!claimsMounted) {
-    claimsMounted = true;
-    await mountClaims();
-  }
+
+  // Profile and claims are independent round-trips; run them together rather
+  // than making the claim list wait on the display name.
+  const profilePromise = fetchProfile()
+    .then((profile) => {
+      // Don't clobber something the user has started typing while we waited.
+      if (nameInput && document.activeElement !== nameInput) {
+        nameInput.value = profile?.display_name ?? '';
+      }
+    })
+    .catch((err: unknown) => setStatus(nameStatus, describe(err), 'error'));
+
+  const claimsPromise = claimsMounted ? Promise.resolve() : ((claimsMounted = true), mountClaims());
+  await Promise.all([profilePromise, claimsPromise]);
+}
+
+/**
+ * Paint what the stored session already tells us — that you're signed in, your
+ * email, your display name — before supabase-js has even been fetched. Without
+ * this the panel sits blank for a second or two on every load while the SDK
+ * downloads and the profile query round-trips, which reads as "no username set"
+ * rather than "still loading".
+ */
+function prefillFromCache(): boolean {
+  const cached = readCachedSession();
+  if (!cached) return false;
+  if (emailLabel) emailLabel.textContent = cached.email ?? '';
+  if (nameInput && cached.displayName) nameInput.value = cached.displayName;
+  show(signedIn);
+  return true;
 }
 
 async function init() {
@@ -71,7 +97,9 @@ async function init() {
     show(unconfigured);
     return;
   }
-  show(loading);
+  // Show the signed-in panel straight away when the cache says so; only fall
+  // back to "Checking your session…" when we genuinely don't know yet.
+  if (!prefillFromCache()) show(loading);
 
   const sb = await getSupabase();
 

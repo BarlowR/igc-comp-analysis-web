@@ -42,7 +42,7 @@ import Base from '../layouts/Base.astro';
       <p class="field-hint">Signed in as <span id="account-email" class="account-email"></span></p>
 
       <form id="name-form" class="account-form">
-        <label class="field-label" for="display-name">Display name</label>
+        <label class="field-label" for="display-name">Username</label>
         <input id="display-name" type="text" name="display_name" maxlength="60"
           autocomplete="name" placeholder="How your name appears on annotations" />
         <button type="submit" class="account-btn">Save</button>
@@ -61,8 +61,8 @@ import Base from '../layouts/Base.astro';
       <p id="claims-status" class="form-status" role="status" aria-live="polite"></p>
 
       <form id="claim-form" class="account-form claim-search">
-        <label class="field-label" for="claim-query">Find your name</label>
-        <input id="claim-query" type="search" autocomplete="off" placeholder="Start typing your name" />
+        <label class="field-label" for="claim-query">Find your results</label>
+        <input id="claim-query" type="search" autocomplete="off" placeholder="Type your name as it appears on comp trackers" />
       </form>
       <div id="claim-results" class="claim-results"></div>
 

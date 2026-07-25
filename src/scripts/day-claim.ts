@@ -167,6 +167,8 @@ async function mount() {
     return;
   }
 
+  body.replaceChildren(el('p', 'field-hint', 'Loading your flights…'));
+
   const refresh = async (): Promise<void> => {
     try {
       const [roster, claims] = await Promise.all([

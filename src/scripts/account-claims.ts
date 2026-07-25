@@ -174,6 +174,8 @@ function renderSearchResults(matches: RosterPilot[]) {
 export async function mountClaims(): Promise<void> {
   if (!listEl) return;
   setStatus('');
+  // An empty box reads as "you've claimed nothing"; say we're still looking.
+  listEl.replaceChildren(el('p', 'field-hint', 'Loading your flights…'));
   try {
     [roster, claims] = await Promise.all([fetchRoster(), listMyClaims()]);
   } catch (err) {

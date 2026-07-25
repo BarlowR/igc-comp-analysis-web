@@ -8,7 +8,7 @@
 // supabase-js is ~100 KB, and the archive pages are already heavy, so it is
 // pulled in via dynamic import — only pages that actually sign someone in or
 // read user data pay for it. The nav chip uses readCachedSession() instead.
-import type { SupabaseClient, Session } from '@supabase/supabase-js';
+import type { SupabaseClient, Session, User } from '@supabase/supabase-js';
 
 const SUPABASE_URL = import.meta.env.PUBLIC_SUPABASE_URL as string | undefined;
 const SUPABASE_ANON_KEY = import.meta.env.PUBLIC_SUPABASE_ANON_KEY as string | undefined;
@@ -90,6 +90,24 @@ export function readCachedSession(): CachedSession | null {
   }
 }
 
+/**
+ * The signed-in user, read from the stored session.
+ *
+ * Deliberately getSession() and not getUser(): getUser() revalidates against
+ * /auth/v1/user on every call, so a page that loaded a profile and a claim list
+ * paid for three sequential round-trips before it could render. The session is
+ * a signed JWT that supabase-js refreshes on its own, and every query it feeds
+ * is checked by RLS server-side anyway — trusting it locally to name the user
+ * costs nothing.
+ */
+export async function currentUser(): Promise<User | null> {
+  const sb = await getSupabase();
+  const {
+    data: { session },
+  } = await sb.auth.getSession();
+  return session?.user ?? null;
+}
+
 export interface Profile {
   id: string;
   display_name: string | null;
@@ -98,9 +116,7 @@ export interface Profile {
 /** The signed-in user's profile row, or null if signed out. */
 export async function fetchProfile(): Promise<Profile | null> {
   const sb = await getSupabase();
-  const {
-    data: { user },
-  } = await sb.auth.getUser();
+  const user = await currentUser();
   if (!user) return null;
 
   const { data, error } = await sb
@@ -117,9 +133,7 @@ export async function fetchProfile(): Promise<Profile | null> {
 /** Save a display name to both the profile row and the auth metadata (the nav chip reads the latter). */
 export async function saveDisplayName(displayName: string): Promise<void> {
   const sb = await getSupabase();
-  const {
-    data: { user },
-  } = await sb.auth.getUser();
+  const user = await currentUser();
   if (!user) throw new Error('Not signed in.');
 
   const name = displayName.trim() || null;

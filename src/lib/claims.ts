@@ -10,7 +10,7 @@
 // (see supabase/migrations/0002_shared_claims.sql). The only uniqueness left is
 // per account, so claiming twice from one account is a no-op rather than a
 // duplicate row.
-import { getSupabase } from './supabase';
+import { currentUser, getSupabase } from './supabase';
 
 export interface PilotClaim {
   id: string;
@@ -26,9 +26,7 @@ const UNIQUE_VIOLATION = '23505';
 
 export async function listMyClaims(): Promise<PilotClaim[]> {
   const sb = await getSupabase();
-  const {
-    data: { user },
-  } = await sb.auth.getUser();
+  const user = await currentUser();
   if (!user) return [];
 
   const { data, error } = await sb
@@ -42,9 +40,7 @@ export async function listMyClaims(): Promise<PilotClaim[]> {
 /** This account's claims covering one archived day, name-level or one-off. */
 export async function listMyClaimsForDay(comp: string, day: string): Promise<PilotClaim[]> {
   const sb = await getSupabase();
-  const {
-    data: { user },
-  } = await sb.auth.getUser();
+  const user = await currentUser();
   if (!user) return [];
 
   const { data, error } = await sb
@@ -70,9 +66,7 @@ export async function claimDay(
   pilotLabel: string,
 ): Promise<boolean> {
   const sb = await getSupabase();
-  const {
-    data: { user },
-  } = await sb.auth.getUser();
+  const user = await currentUser();
   if (!user) throw new Error('Not signed in.');
 
   const { error } = await sb
@@ -99,9 +93,7 @@ export async function claimPilot(
   comps: string[],
 ): Promise<ClaimResult> {
   const sb = await getSupabase();
-  const {
-    data: { user },
-  } = await sb.auth.getUser();
+  const user = await currentUser();
   if (!user) throw new Error('Not signed in.');
 
   const result: ClaimResult = { claimed: [], already: [] };
