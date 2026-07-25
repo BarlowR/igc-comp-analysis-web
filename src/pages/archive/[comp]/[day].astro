@@ -43,11 +43,19 @@ const heading = entry.title ?? `${entry.compLabel ?? entry.comp} — ${entry.day
     </section>
 
     <div id="results" class="results"></div>
+
+    {/* Unhidden by day-claim.ts, and only when accounts are configured. */}
+    <section class="card day-claim" id="day-claim" hidden>
+      <h2>Your result</h2>
+      <div id="day-claim-body"></div>
+      <p id="day-claim-status" class="form-status" role="status" aria-live="polite"></p>
+    </section>
   </main>
 
   <script type="application/json" id="archive-entry" set:html={JSON.stringify(clientEntry)} />
   <script>
     import '../../../scripts/archive.ts';
+    import '../../../scripts/day-claim.ts';
   </script>
 </Base>
 

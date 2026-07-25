@@ -61,6 +61,16 @@ test('pilotNameFromHeader: null without a pilot record, so the caller falls back
   assert.equal(new IgcFlight(text, 'From Filename').pilotName, 'From Filename');
 });
 
+test('pilotNameFromHeader: an empty header name does not beat the fallback', () => {
+  // Four tracks in the archive carry a bare "HFPLTPILOT:", which used to blank
+  // the pilot out even though the filename named them perfectly well.
+  for (const header of ['HFPLTPILOT:', 'HFPLTPILOT:   ']) {
+    const text = igc(['AXTEST', 'HFDTE070726', header]);
+    assert.equal(pilotNameFromHeader(text), null);
+    assert.equal(new IgcFlight(text, 'Jorge Atramiz').pilotName, 'Jorge Atramiz');
+  }
+});
+
 test('pilotNameFromHeader: ignores anything after the first B record', () => {
   // Stopping at the fixes is what keeps the roster read to a few KB; a stray
   // HFPLTPILOT further down must not be picked up when the parser wouldn't.

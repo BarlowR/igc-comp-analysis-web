@@ -76,7 +76,10 @@
         like the day JSONs (a query over public data, so no auth needed); the
         claims from step 2 are what say which slug is you.
 
-  Claims are honour-system and shared by choice — any number of accounts can
-  claim the same pilot (0002_shared_claims.sql), since a duplicate claim costs
-  the real pilot nothing and exclusivity broke legitimate cases (two pilots
-  sharing a name slug, one person with two accounts).
+  Claims come in two scopes (0003_day_claims.sql): a name claim covers every
+  task a pilot flew in a comp, and a one-off claim on the archive day page
+  covers a single task — for borrowed or shared trackers, where the result is
+  yours but the name on it isn't. Claims are honour-system and shared by choice
+  (0002_shared_claims.sql): a duplicate claim costs the real pilot nothing, and
+  exclusivity broke legitimate cases (two pilots sharing a name slug, one
+  person with two accounts).

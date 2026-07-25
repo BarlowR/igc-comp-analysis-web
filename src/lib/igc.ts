@@ -95,7 +95,8 @@ export function pilotNameFromHeader(text: string): string | null {
     if (line[0] === 'B') break;
     if (line.startsWith('HFPLTPILOT')) {
       const value = line.split(':')[1];
-      if (value !== undefined) return value;
+      // An empty value counts as "no name": see the matching branch in parse().
+      if (value?.trim()) return value;
     }
   }
   return null;
@@ -143,7 +144,11 @@ export class IgcFlight {
           else dateStr = line.slice(5, 11);
           this.day = parseIgcDate(dateStr);
         } else if (line.startsWith('HFPLTPILOT')) {
-          this.pilotName = line.split(':')[1] ?? this.pilotName;
+          // Some trackers emit a bare "HFPLTPILOT:" with no name. That carries
+          // no information, so keep the fallback (usually the filename) rather
+          // than blanking the pilot out.
+          const value = line.split(':')[1];
+          if (value?.trim()) this.pilotName = value;
         }
 
         if (line[0] === 'B') {

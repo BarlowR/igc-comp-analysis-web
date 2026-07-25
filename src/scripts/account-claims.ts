@@ -89,12 +89,15 @@ function renderClaims() {
     head.appendChild(drop);
     card.appendChild(head);
 
-    // The tasks themselves: every archived day this pilot flew, in a comp the
-    // user has claimed.
-    const ownedComps = new Set(group.map((c) => c.comp));
+    // The tasks themselves. A name claim (day null) covers every day this pilot
+    // flew in that comp; a one-off claim covers just its own day.
+    const ownedComps = new Set(group.filter((c) => c.day === null).map((c) => c.comp));
+    const ownedDays = new Set(
+      group.filter((c) => c.day !== null).map((c) => `${c.comp}/${c.day}`),
+    );
     const days = (pilot?.flights ?? [])
       .map((i) => roster!.days[i])
-      .filter((d) => d && ownedComps.has(d.comp));
+      .filter((d) => d && (ownedComps.has(d.comp) || ownedDays.has(`${d.comp}/${d.day}`)));
 
     if (days.length === 0) {
       card.appendChild(el('p', 'field-hint', 'No archived tasks found for this pilot.'));
