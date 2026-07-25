@@ -17,6 +17,7 @@
     "xcdemon": "node scripts/xcdemon-crawl.mjs"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.110.8",
     "astro": "^5.0.0",
     "cesium": "^1.143.0",
     "chart.js": "^4.4.0",

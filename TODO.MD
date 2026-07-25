@@ -49,3 +49,24 @@
 
 
 - [ ] Hike and Fly Tasks
+
+- [ ] User accounts with annotations
+      Decision + options in docs/decisions/0001-user-accounts.md: stay static,
+      add Supabase for auth and user data. Doing it in three passes.
+
+  - [x] 1. Accounts — passwordless email sign-in, profile, display name.
+        src/lib/supabase.ts (lazy client + a localStorage session peek so the
+        nav chip costs 0.4 KB instead of pulling the 209 KB SDK onto every
+        page), src/pages/account.astro + src/scripts/account.ts, nav chip in
+        Base.astro. Schema in supabase/migrations/0001_accounts.sql — RLS is
+        the whole security boundary, since the browser talks to Postgres
+        directly. Builds with accounts off when the env vars are blank.
+  - [ ] 2. Annotations — notes against (comp, day, pilot, time), public or
+        private, hung off the existing scrubber.
+  - [ ] 3. Individual comparative results — /pilot/<slug> precomputed at build
+        like the day JSONs (it's a query over public data, so it needs no
+        auth). Accounts only store which slug is you, via pilot_claims. Needs
+        a roster picker: pilot names are dirty ("casey gerstle", "(Bruno)
+        Subarno.1177.131", one blank) and the per-comp entry number is not
+        stable across comps, so identity can't be inferred — see
+        src/lib/pilots.ts.

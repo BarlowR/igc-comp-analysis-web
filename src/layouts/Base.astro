@@ -14,6 +14,7 @@ const {
 
 const path = Astro.url.pathname;
 const isArchive = path.startsWith('/archive');
+const isHome = path === '/';
 ---
 
 <!doctype html>
@@ -32,10 +33,16 @@ const isArchive = path.startsWith('/archive');
   </head>
   <body>
     <nav class="topnav">
-      <a href="/" class:list={[{ active: !isArchive }]}>Analyze</a>
+      <a href="/" class:list={[{ active: isHome }]}>Analyze</a>
       <a href="/archive" class:list={[{ active: isArchive }]}>Archive</a>
+      {/* Filled in by src/scripts/nav-account.ts — the session only exists client-side. */}
+      <span id="nav-account" class="nav-account"></span>
     </nav>
 
     <slot />
+
+    <script>
+      import '../scripts/nav-account';
+    </script>
   </body>
 </html>

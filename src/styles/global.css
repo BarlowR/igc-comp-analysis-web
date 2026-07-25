@@ -934,3 +934,131 @@ table.stats td.name {
     background: var(--panel-2);
   }
 }
+
+/* ---------------------------------------------------------------- account --
+   Nav chip + the /account page. The chip is written in by
+   src/scripts/nav-account.ts, so it starts empty and must not reserve space. */
+.nav-account {
+  margin-left: auto;
+}
+
+.nav-account-link {
+  color: var(--muted);
+  text-decoration: none;
+  font-weight: 400;
+  font-size: 0.95rem;
+  padding-bottom: 0.15rem;
+  border-bottom: 2px solid transparent;
+  max-width: 12rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: inline-block;
+  vertical-align: bottom;
+}
+
+.nav-account-link:hover {
+  color: var(--accent);
+}
+
+.nav-account-link.active {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+
+.account-card {
+  max-width: 34rem;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.account-card h3 {
+  margin: 0 0 0.4rem;
+}
+
+.account-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  align-items: flex-start;
+  margin-top: 0.75rem;
+}
+
+.account-form input[type='email'],
+.account-form input[type='text'] {
+  width: 100%;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.55rem 0.7rem;
+  font: inherit;
+}
+
+.account-form input:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.account-btn {
+  background: var(--accent-strong);
+  color: #f5efe1;
+  border: none;
+  border-radius: 9px;
+  padding: 0.55rem 1.2rem;
+  font: inherit;
+  font-weight: 400;
+  cursor: pointer;
+  transition: filter 0.15s ease;
+}
+
+.account-btn:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.account-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.account-btn.ghost {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--border);
+}
+
+.account-btn.ghost:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+/* Reserves no height when empty, so the card doesn't jump on the first status. */
+.form-status {
+  margin: 0.6rem 0 0;
+  font-size: 0.9rem;
+  color: var(--muted);
+  min-height: 1.35em;
+}
+
+.form-status.ok {
+  color: var(--accent-strong);
+}
+
+.form-status.error {
+  color: #9b2c2c;
+}
+
+.account-email {
+  color: var(--text);
+}
+
+.account-divider {
+  height: 1px;
+  background: var(--border);
+  opacity: 0.5;
+  margin: 1.5rem 0;
+}
+
+.account-actions {
+  margin-top: 1.5rem;
+}

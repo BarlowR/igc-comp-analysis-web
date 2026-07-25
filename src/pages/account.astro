@@ -1,0 +1,71 @@
+---
+// Account page. Everything here is client-rendered: the site is static, so
+// there is no server to know who is signed in. src/scripts/account.ts fills it.
+import Base from '../layouts/Base.astro';
+---
+
+<Base title="Account — Comp Tracklog Analysis">
+  <header class="hero">
+    <h1>Account</h1>
+    <p>Sign in to save annotations and claim your results across comps.</p>
+  </header>
+
+  <main>
+    <section class="card account-card" id="account-unconfigured" hidden>
+      <h2>Accounts are off</h2>
+      <p class="field-hint">
+        This build has no Supabase credentials. Set <code>PUBLIC_SUPABASE_URL</code> and
+        <code>PUBLIC_SUPABASE_ANON_KEY</code> (see <code>.env.example</code>) and rebuild.
+      </p>
+    </section>
+
+    <section class="card account-card" id="account-loading">
+      <p class="field-hint">Checking your session…</p>
+    </section>
+
+    <section class="card account-card" id="account-signed-out" hidden>
+      <h2>Sign in</h2>
+      <p class="field-hint">
+        No password. Enter your email and we'll send a sign-in link — it works for signing up too.
+      </p>
+      <form id="signin-form" class="account-form">
+        <label class="field-label" for="signin-email">Email</label>
+        <input id="signin-email" type="email" name="email" required autocomplete="email"
+          placeholder="you@example.com" />
+        <button id="signin-submit" type="submit" class="account-btn">Email me a link</button>
+      </form>
+      <p id="signin-status" class="form-status" role="status" aria-live="polite"></p>
+    </section>
+
+    <section class="card account-card" id="account-signed-in" hidden>
+      <h2>Signed in</h2>
+      <p class="field-hint">Signed in as <span id="account-email" class="account-email"></span></p>
+
+      <form id="name-form" class="account-form">
+        <label class="field-label" for="display-name">Display name</label>
+        <input id="display-name" type="text" name="display_name" maxlength="60"
+          autocomplete="name" placeholder="How your name appears on annotations" />
+        <button type="submit" class="account-btn">Save</button>
+      </form>
+      <p id="name-status" class="form-status" role="status" aria-live="polite"></p>
+
+      <div class="account-divider"></div>
+
+      <div class="account-soon">
+        <h3>Your pilot results</h3>
+        <p class="field-hint">
+          Claiming your name in each comp is what links your flights together — the archive can't
+          infer it, because entry numbers change between comps. Coming with the per-pilot pages.
+        </p>
+      </div>
+
+      <div class="account-actions">
+        <button id="sign-out" type="button" class="account-btn ghost">Sign out</button>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    import '../scripts/account';
+  </script>
+</Base>
