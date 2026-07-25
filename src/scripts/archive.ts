@@ -4,6 +4,7 @@
  * The client no longer downloads the IGC tracklogs or re-runs the analysis.
  */
 import { renderArchivedResults, type ArchivedResults } from './analysis';
+import { installDayClaim } from './day-claim';
 
 interface ArchiveEntry {
   base: string; // e.g. "/archive/chelan-us-open-2026/day1"
@@ -21,6 +22,9 @@ async function load(): Promise<void> {
     return;
   }
   const entry = JSON.parse(dataEl.textContent) as ArchiveEntry;
+
+  // Before the render below, so the first pinned pilot already has the control.
+  installDayClaim();
 
   // Progress bar shown while the results JSON downloads.
   const progress = document.createElement('div');

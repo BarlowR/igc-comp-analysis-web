@@ -79,6 +79,25 @@ let charts: Chart[] = [];
 let map: L.Map | null = null;
 
 /**
+ * Hooks for page-level features that need to reach inside a rendered analysis
+ * without this module knowing about them. The archive day page uses them to put
+ * a "claim this result" control in the pinned pilot's breakdown panel and to
+ * pin the signed-in user's own result on load (see scripts/day-claim.ts).
+ */
+export interface RenderHooks {
+  /** Extra content for the pinned pilot's breakdown panel; null for none. */
+  pinnedExtra?: (pilot: string) => HTMLElement | null;
+  /** Called once per render, after the tables exist and can react to pinning. */
+  onReady?: (sel: Selection, pilots: string[]) => void;
+}
+
+let hooks: RenderHooks = {};
+
+export function setRenderHooks(next: RenderHooks): void {
+  hooks = next;
+}
+
+/**
  * Render precomputed (server-built) results for an archived day. No IGC parsing
  * or analysis happens on the client — it just draws the stored table/climb/map.
  */
@@ -274,6 +293,9 @@ function render(
   if (table.incomplete.length || climb.incomplete.length) {
     resultsEl.appendChild(group('Did Not Complete Task', table, table.incomplete, false, climb.incomplete, sel, colors, timeLoss));
   }
+  // After the tables are in the DOM, so a hook that pins a pilot reaches a
+  // subscriber that can act on it.
+  hooks.onReady?.(sel, ordered);
   resultsEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
@@ -1907,12 +1929,31 @@ function tableEl(
     const pinned = sel.highlight();
     if (!pinned) return;
     const anchor = rowEls.get(pinned);
-    const loss = lossByPilot.get(pinned);
-    if (!anchor || !loss || !timeLoss.winner) return;
+    if (!anchor) return;
 
-    anchor.after(
-      timeLossRow(loss, timeLoss.winner, table.headers.length + 1, timeLoss.contextScale, timeLoss.topCount),
-    );
+    const loss = lossByPilot.get(pinned);
+    const extra = hooks.pinnedExtra?.(pinned) ?? null;
+
+    let row: HTMLElement | null = null;
+    if (loss && timeLoss.winner) {
+      row = timeLossRow(loss, timeLoss.winner, table.headers.length + 1, timeLoss.contextScale, timeLoss.topCount);
+    } else if (extra) {
+      // No time-loss breakdown for this pilot (they don't appear in the
+      // decomposition), but the hook still has something to show — a bare panel
+      // keeps it reachable rather than silently dropping it.
+      row = document.createElement('tr');
+      row.className = 'time-loss';
+      const td = document.createElement('td');
+      td.colSpan = table.headers.length + 1;
+      const panel = document.createElement('div');
+      panel.className = 'tl-panel';
+      td.appendChild(panel);
+      row.appendChild(td);
+    }
+    if (!row) return;
+
+    if (extra) row.querySelector('.tl-panel')?.appendChild(extra);
+    anchor.after(row);
   };
   sel.onHighlight(applyHighlight);
 

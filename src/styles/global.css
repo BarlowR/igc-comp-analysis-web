@@ -1208,60 +1208,36 @@ table.stats td.name {
 }
 
 /* ------------------------------------------- archive day: claim a result --
-   One-off claims on an archived day page (src/scripts/day-claim.ts), for when
-   the name on a result belongs to a borrowed tracker rather than the pilot. */
+   The claim control inside the pinned pilot's breakdown panel
+   (src/scripts/day-claim.ts). It sits at the foot of .tl-panel, so it inherits
+   that panel's narrow, left-pinned width. */
 .day-claim {
-  max-width: 34rem;
-}
-
-.day-claim-form {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 0.6rem;
-  margin-bottom: 0.5rem;
+  gap: 0.7rem;
+  margin-top: 0.9rem;
+  padding-top: 0.7rem;
+  border-top: 1px solid var(--border);
 }
 
-.day-claim-form .field-label {
-  flex-basis: 100%;
-}
-
-.day-claim-select {
-  flex: 1 1 14rem;
-  min-width: 0;
-  background: var(--panel-2);
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 0.5rem 0.6rem;
-  font: inherit;
-}
-
-.day-claim-select:focus-visible {
-  outline: none;
-  border-color: var(--accent);
-}
-
-.day-claim-row {
-  display: flex;
-  align-items: baseline;
-  gap: 0.6rem;
-  padding: 0.2rem 0;
-}
-
-.day-claim-name {
-  font-weight: 400;
-}
-
-.day-claim-scope {
-  font-size: 0.82rem;
+.day-claim-note {
+  font-size: 0.88rem;
   color: var(--muted);
 }
 
-.day-claim-row .claim-remove {
-  margin-left: auto;
+.day-claim-status {
+  font-size: 0.85rem;
+  color: var(--muted);
 }
 
-.day-claim-link {
+.day-claim-status.ok {
   color: var(--accent-strong);
+}
+
+.day-claim-status.error {
+  color: #9b2c2c;
+}
+
+.day-claim .claim-remove {
+  margin-left: 0;
 }

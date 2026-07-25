@@ -47,15 +47,6 @@ export function compsForPilot(roster: Roster, pilot: RosterPilot): RosterDay[] {
   return out;
 }
 
-/** Everyone who flew one archived day, by label. */
-export function pilotsForDay(roster: Roster, comp: string, day: string): RosterPilot[] {
-  const dayIndex = roster.days.findIndex((d) => d.comp === comp && d.day === day);
-  if (dayIndex === -1) return [];
-  return roster.pilots
-    .filter((p) => p.flights.includes(dayIndex))
-    .sort((a, b) => a.label.localeCompare(b.label));
-}
-
 /**
  * Substring search over pilot names, best matches first: exact key, then
  * prefix, then anywhere. Query is slugified so "gutierrez" finds "Gutiérrez"
