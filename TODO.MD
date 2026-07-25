@@ -61,12 +61,21 @@
         Base.astro. Schema in supabase/migrations/0001_accounts.sql — RLS is
         the whole security boundary, since the browser talks to Postgres
         directly. Builds with accounts off when the env vars are blank.
-  - [ ] 2. Annotations — notes against (comp, day, pilot, time), public or
+  - [x] 2. Link flights to the account — the account page lists the tasks you
+        flew. src/pages/pilots.json.ts builds an archive-wide roster (294
+        pilots / 11 days / 21 KB) by reading only the first 8 KB of each IGC
+        for its HFPLTPILOT header, so it costs ~190 ms rather than re-reading
+        560 MB. Search your name, claim it, and pilot_claims rows are written
+        per comp. This is the only way the history joins up: Bill Belcourt is
+        entry .4 in chelan2026 and .3 in chelan-us-open-2026, and the names
+        themselves are dirty ("casey gerstle", "(Bruno) Subarno.1177.131",
+        one blank) — see src/lib/pilots.ts.
+  - [ ] 3. Annotations — notes against (comp, day, pilot, time), public or
         private, hung off the existing scrubber.
-  - [ ] 3. Individual comparative results — /pilot/<slug> precomputed at build
-        like the day JSONs (it's a query over public data, so it needs no
-        auth). Accounts only store which slug is you, via pilot_claims. Needs
-        a roster picker: pilot names are dirty ("casey gerstle", "(Bruno)
-        Subarno.1177.131", one blank) and the per-comp entry number is not
-        stable across comps, so identity can't be inferred — see
-        src/lib/pilots.ts.
+  - [ ] 4. Individual comparative results — /pilot/<slug> precomputed at build
+        like the day JSONs (a query over public data, so no auth needed); the
+        claims from step 2 are what say which slug is you.
+
+  Known gap: two pilots who share a name slug collapse into one identity, and
+  the first account to claim it wins (unique on comp+pilot_key). Claims show an
+  "unverified" badge; there's no verification story yet.

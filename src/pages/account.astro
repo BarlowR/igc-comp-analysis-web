@@ -51,13 +51,20 @@ import Base from '../layouts/Base.astro';
 
       <div class="account-divider"></div>
 
-      <div class="account-soon">
-        <h3>Your pilot results</h3>
-        <p class="field-hint">
-          Claiming your name in each comp is what links your flights together — the archive can't
-          infer it, because entry numbers change between comps. Coming with the per-pilot pages.
-        </p>
-      </div>
+      <h3>Your flights</h3>
+      <p class="field-hint">
+        Claim your name in the archive and your tasks are listed here. The archive can't work
+        this out on its own — entry numbers change between comps, so only the name links them.
+      </p>
+
+      <div id="claims-list" class="claims-list"></div>
+      <p id="claims-status" class="form-status" role="status" aria-live="polite"></p>
+
+      <form id="claim-form" class="account-form claim-search">
+        <label class="field-label" for="claim-query">Find your name</label>
+        <input id="claim-query" type="search" autocomplete="off" placeholder="Start typing your name" />
+      </form>
+      <div id="claim-results" class="claim-results"></div>
 
       <div class="account-actions">
         <button id="sign-out" type="button" class="account-btn ghost">Sign out</button>

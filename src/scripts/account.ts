@@ -4,6 +4,7 @@
 // magic link, the link lands back on /account with ?code=…, and the client
 // exchanges it for a session on load (detectSessionInUrl in lib/supabase.ts).
 import { fetchProfile, getSupabase, isConfigured, saveDisplayName } from '../lib/supabase';
+import { mountClaims } from './account-claims';
 
 const el = <T extends HTMLElement>(id: string) => document.getElementById(id) as T | null;
 
@@ -47,6 +48,9 @@ function cleanUrl() {
   }
 }
 
+/** Guards against a second onAuthStateChange firing the claims mount again. */
+let claimsMounted = false;
+
 async function renderSignedIn(email: string | null) {
   if (emailLabel) emailLabel.textContent = email ?? '';
   show(signedIn);
@@ -55,6 +59,10 @@ async function renderSignedIn(email: string | null) {
     if (nameInput) nameInput.value = profile?.display_name ?? '';
   } catch (err) {
     setStatus(nameStatus, describe(err), 'error');
+  }
+  if (!claimsMounted) {
+    claimsMounted = true;
+    await mountClaims();
   }
 }
 

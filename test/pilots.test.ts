@@ -7,6 +7,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { cleanPilotLabel, slugifyPilot } from '../src/lib/pilots.ts';
+import { IgcFlight, pilotNameFromHeader } from '../src/lib/igc.ts';
+
+/** Minimal IGC: header, one B record, done. */
+function igc(header: string[], body: string[] = ['B1300004712000N00830000EA0100001000']): string {
+  return [...header, ...body, 'GABC'].join('\n');
+}
 
 test('slugifyPilot: normalises case and spacing', () => {
   assert.equal(slugifyPilot('casey gerstle'), 'casey-gerstle');
@@ -37,6 +43,33 @@ test('slugifyPilot: returns empty for names we cannot key on', () => {
   assert.equal(slugifyPilot(''), '');
   assert.equal(slugifyPilot('   '), '');
   assert.equal(slugifyPilot('.123.4'), '');
+});
+
+// The roster (src/pages/pilots.json.ts) reads only the head of each IGC, so its
+// notion of a pilot's name must match what the full parser puts on the day page.
+test('pilotNameFromHeader: agrees with IgcFlight on the header name', () => {
+  for (const name of ['Bill Belcourt', 'casey gerstle', 'Walter H Gutiérrez ']) {
+    const text = igc(['AXTEST', 'HFDTE070726', 'HFPLTPILOT:' + name]);
+    assert.equal(pilotNameFromHeader(text), name);
+    assert.equal(new IgcFlight(text, 'fallback').pilotName, name);
+  }
+});
+
+test('pilotNameFromHeader: null without a pilot record, so the caller falls back', () => {
+  const text = igc(['AXTEST', 'HFDTE070726']);
+  assert.equal(pilotNameFromHeader(text), null);
+  assert.equal(new IgcFlight(text, 'From Filename').pilotName, 'From Filename');
+});
+
+test('pilotNameFromHeader: ignores anything after the first B record', () => {
+  // Stopping at the fixes is what keeps the roster read to a few KB; a stray
+  // HFPLTPILOT further down must not be picked up when the parser wouldn't.
+  const text = igc(['AXTEST', 'HFDTE070726'], [
+    'B1300004712000N00830000EA0100001000',
+    'HFPLTPILOT:Too Late',
+  ]);
+  assert.equal(pilotNameFromHeader(text), null);
+  assert.equal(new IgcFlight(text, 'From Filename').pilotName, 'From Filename');
 });
 
 test('cleanPilotLabel: tidies for display without changing identity', () => {

@@ -78,6 +78,29 @@ interface Columns {
 
 export type Stats = Record<string, number | boolean | null>;
 
+/**
+ * The pilot name IgcFlight would take from this text's header, or null if the
+ * file has no HFPLTPILOT record (in which case the caller's fallback wins).
+ *
+ * Split out so callers that only need the name — the pilot roster built by
+ * src/pages/pilots.json.ts — can read a few KB off the front of each IGC
+ * instead of parsing millions of B-records. It must stay in step with the
+ * HFPLTPILOT branch in IgcFlight.parse(); test/pilots.test.ts asserts they
+ * agree.
+ */
+export function pilotNameFromHeader(text: string): string | null {
+  for (const line of text.split(/\r?\n/)) {
+    if (line.length === 0) continue;
+    // The header ends at the first B-record; anything after is fixes.
+    if (line[0] === 'B') break;
+    if (line.startsWith('HFPLTPILOT')) {
+      const value = line.split(':')[1];
+      if (value !== undefined) return value;
+    }
+  }
+  return null;
+}
+
 export class IgcFlight {
   pilotName = 'Unknown Pilot';
   day: Date = new Date(); // mutated on midnight rollover, mirroring Python self.day

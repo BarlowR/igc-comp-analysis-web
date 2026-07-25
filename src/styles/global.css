@@ -1062,3 +1062,158 @@ table.stats td.name {
 .account-actions {
   margin-top: 1.5rem;
 }
+
+/* ------------------------------------------------- account: pilot claims --
+   "Your flights": claimed pilots and the tasks they flew, plus the search that
+   creates a claim. Rendered by src/scripts/account-claims.ts. */
+.claims-list {
+  margin-top: 1rem;
+}
+
+.claim-card {
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 0.9rem 1rem;
+  margin-bottom: 0.75rem;
+  background: var(--panel-2);
+}
+
+.claim-card-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+}
+
+.claim-name {
+  font-weight: 400;
+  font-size: 1.05rem;
+}
+
+.claim-badge {
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.05rem 0.5rem;
+  cursor: help;
+}
+
+.claim-remove {
+  margin-left: auto;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.claim-remove:hover:not(:disabled) {
+  color: #9b2c2c;
+}
+
+.claim-days {
+  list-style: none;
+  margin: 0.7rem 0 0;
+  padding: 0;
+}
+
+.claim-comp {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  margin-top: 0.6rem;
+}
+
+.claim-comp:first-child {
+  margin-top: 0;
+}
+
+.claim-day {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  padding: 0.15rem 0;
+}
+
+.claim-day-link {
+  color: var(--accent-strong);
+  text-decoration: none;
+}
+
+.claim-day-link:hover {
+  text-decoration: underline;
+}
+
+.claim-day-date {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.claim-search {
+  margin-top: 1.25rem;
+}
+
+.claim-search input[type='search'] {
+  width: 100%;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.55rem 0.7rem;
+  font: inherit;
+}
+
+.claim-search input:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.claim-results:not(:empty) {
+  margin-top: 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  overflow: hidden;
+}
+
+.claim-option {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.6rem 0.8rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.claim-option:last-child {
+  border-bottom: none;
+}
+
+.claim-option-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.claim-option-name {
+  font-weight: 400;
+}
+
+.claim-option-meta {
+  font-size: 0.8rem;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-btn.small {
+  margin-left: auto;
+  flex: none;
+  padding: 0.35rem 0.8rem;
+  font-size: 0.85rem;
+}
