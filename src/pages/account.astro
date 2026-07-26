@@ -38,20 +38,7 @@ import Base from '../layouts/Base.astro';
     </section>
 
     <section class="card account-card" id="account-signed-in" hidden>
-      <h2>Signed in</h2>
-      <p class="field-hint">Signed in as <span id="account-email" class="account-email"></span></p>
-
-      <form id="name-form" class="account-form">
-        <label class="field-label" for="display-name">Username</label>
-        <input id="display-name" type="text" name="display_name" maxlength="60"
-          autocomplete="name" placeholder="How your name appears on annotations" />
-        <button type="submit" class="account-btn">Save</button>
-      </form>
-      <p id="name-status" class="form-status" role="status" aria-live="polite"></p>
-
-      <div class="account-divider"></div>
-
-      <h3>Your flights</h3>
+      <h2>Your flights</h2>
       <p class="field-hint">
         Claim your name in the archive and your tasks are listed here. The archive can't work
         this out on its own — entry numbers change between comps, so only the name links them.
@@ -65,6 +52,19 @@ import Base from '../layouts/Base.astro';
         <input id="claim-query" type="search" autocomplete="off" placeholder="Type your name as it appears on comp trackers" />
       </form>
       <div id="claim-results" class="claim-results"></div>
+
+      <div class="account-divider"></div>
+
+      <h3>Account</h3>
+      <p class="field-hint">Signed in as <span id="account-email" class="account-email"></span></p>
+
+      <form id="name-form" class="account-form">
+        <label class="field-label" for="display-name">Username</label>
+        <input id="display-name" type="text" name="display_name" maxlength="60"
+          autocomplete="name" placeholder="How your name appears on annotations" />
+        <button type="submit" class="account-btn">Save</button>
+      </form>
+      <p id="name-status" class="form-status" role="status" aria-live="polite"></p>
 
       <div class="account-actions">
         <button id="sign-out" type="button" class="account-btn ghost">Sign out</button>
