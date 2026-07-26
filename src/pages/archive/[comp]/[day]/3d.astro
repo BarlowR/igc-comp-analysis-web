@@ -28,7 +28,7 @@ const clientEntry = { base, label: heading, utcOffsetMinutes: entry.utcOffsetMin
 ---
 
 <Base title={`${heading} — 3D`}>
-  <div class="viewer3d">
+  <div class="viewer3d no-right">
     <div id="cesiumContainer"></div>
 
     <!-- Full-screen loading overlay; track3d.ts advances the step text and fades it out. -->
@@ -60,18 +60,51 @@ const clientEntry = { base, label: heading, utcOffsetMinutes: entry.utcOffsetMin
     <!-- Shared altitude-plot scrubber (mountTimeline) is inserted after this anchor. -->
     <div class="viewer3d-bottom"><div id="timeAnchor"></div></div>
 
-    <div class="panel3d">
-      <div class="panel3d-head">
-        <h1>{heading}</h1>
+    <!-- Left dock: the pilot list. dock3d.ts drives the width + collapse. -->
+    <aside id="dockLeft" class="dock dock-left">
+      <div class="dock-bar">
         <a class="backlink" href={base}>← 2D analysis</a>
+        <button class="dock-toggle" type="button" aria-controls="dockLeftBody">‹</button>
       </div>
-      <div id="status3d" class="status3d">Loading globe…</div>
-      <div class="panel3d-controls">
-        <button id="showAll" type="button">Show all</button>
-        <button id="hideAll" type="button">Hide all</button>
+      <span class="dock-rail-label" aria-hidden="true">Pilots</span>
+      <div id="dockLeftBody" class="dock-body">
+        <h1>{heading}</h1>
+        <div id="status3d" class="status3d">Loading globe…</div>
+        <div class="panel3d-controls">
+          <button id="showAll" type="button">Show all</button>
+          <button id="hideAll" type="button">Hide all</button>
+        </div>
+        <ul id="pilotList" class="pilot-list"></ul>
       </div>
-      <ul id="pilotList" class="pilot-list"></ul>
-    </div>
+      <div class="dock-grip" title="Drag to resize"></div>
+    </aside>
+
+    <!-- Right dock: notes on a moment in a pilot's flight. Ships hidden with its
+         column at zero width; annotations3d.ts reveals it once a session and the
+         accounts config both check out. -->
+    <aside id="dockRight" class="dock dock-right" hidden>
+      <div class="dock-bar">
+        <button class="dock-toggle" type="button" aria-controls="dockRightBody">›</button>
+        {/* The viewer covers the site nav, so this is the only way to the
+            account page from here. Filled in by annotations3d.ts. */}
+        <span id="notes3dAccount" class="dock-account"></span>
+      </div>
+      <span class="dock-rail-label" aria-hidden="true">Notes</span>
+      <div id="dockRightBody" class="dock-body">
+        <div id="notes3d" class="notes3d">
+          <div class="notes3d-head">
+            <span class="notes3d-title">Notes</span>
+            <button id="noteAdd" type="button" title="Note the pinned pilot at the current time">
+              ＋ Add note here
+            </button>
+          </div>
+          <p id="notes3dStatus" class="notes3d-status" role="status" aria-live="polite"></p>
+          <div id="notes3dComposer"></div>
+          <ul id="notes3dList" class="notes3d-list"></ul>
+        </div>
+      </div>
+      <div class="dock-grip" title="Drag to resize"></div>
+    </aside>
   </div>
 
   <script type="application/json" id="archive-entry" set:html={JSON.stringify(clientEntry)} />
@@ -85,19 +118,29 @@ const clientEntry = { base, label: heading, utcOffsetMinutes: entry.utcOffsetMin
 </Base>
 
 <style is:global>
-  /* Full-viewport docked layout: pilot table on the left, globe centre, the
+  /* Full-viewport docked layout: pilots left, globe centre, notes right, the
      altitude scrubber pinned along the bottom — each a real region, not a
-     translucent panel floating over the map. */
+     translucent panel floating over the map.
+
+     The two dock columns are custom properties so dock3d.ts can resize them with
+     a single style write; the map column (1fr) takes whatever is left. Values
+     here are only the pre-JS defaults. */
   .viewer3d {
+    --dock-left: 320px;
+    --dock-right: 320px;
     position: fixed;
     inset: 0;
     display: grid;
-    grid-template-columns: min(320px, 34vw) 1fr;
+    grid-template-columns: var(--dock-left) 1fr var(--dock-right);
     grid-template-rows: 1fr auto;
     grid-template-areas:
-      'panel map'
-      'slider slider';
+      'left map right'
+      'slider slider slider';
     background: var(--bg, #e7e7e7);
+  }
+  /* No notes dock (accounts off, or not signed in): collapse its column away. */
+  .viewer3d.no-right {
+    --dock-right: 0px;
   }
   #cesiumContainer {
     grid-area: map;
@@ -228,23 +271,126 @@ const clientEntry = { base, label: heading, utcOffsetMinutes: entry.utcOffsetMin
     margin-top: 0;
   }
 
-  .panel3d {
-    grid-area: panel;
+  /* ---- side docks (dock3d.ts) ------------------------------------------- */
+  .dock {
+    position: relative;
     display: flex;
     flex-direction: column;
+    min-width: 0;
     min-height: 0;
     background: #fff;
-    border-right: 1px solid rgba(0, 0, 0, 0.12);
-    padding: 0.75rem 0.9rem;
     font-size: 0.85rem;
   }
-  .panel3d-head {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 0.5rem;
+  .dock[hidden] {
+    display: none;
   }
-  .panel3d h1 {
+  .dock-left {
+    grid-area: left;
+    border-right: 1px solid rgba(0, 0, 0, 0.12);
+  }
+  .dock-right {
+    grid-area: right;
+    border-left: 1px solid rgba(0, 0, 0, 0.12);
+  }
+  /* Thin bar carrying the collapse toggle, and whatever link belongs to that
+     side. Survives collapsing — it's what you click to get the dock back. */
+  .dock-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.3rem 0.35rem 0.15rem;
+    min-height: 1.65rem;
+  }
+  .dock-left .dock-bar {
+    padding-left: 0.9rem;
+  }
+  .dock-right .dock-bar {
+    padding-right: 0.9rem;
+  }
+  .dock-left .backlink {
+    margin-right: auto;
+  }
+  .dock-right .dock-account {
+    margin-left: auto;
+  }
+  .dock.collapsed .dock-bar > :not(.dock-toggle) {
+    display: none;
+  }
+  .dock-toggle {
+    flex: none;
+    width: 1.35rem;
+    height: 1.35rem;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border: 1px solid rgba(0, 0, 0, 0.18);
+    border-radius: 5px;
+    background: #fff;
+    color: var(--muted);
+    font: inherit;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .dock-toggle:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+  /* Sideways title down the rail, so a collapsed dock still says what it is. */
+  .dock-rail-label {
+    display: none;
+    writing-mode: vertical-rl;
+    margin: 0.5rem auto 0;
+    color: var(--muted);
+    font-size: 0.78rem;
+    letter-spacing: 0.04em;
+    user-select: none;
+  }
+  .dock.collapsed .dock-rail-label {
+    display: block;
+  }
+  .dock-body {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    padding: 0.2rem 0.9rem 0.75rem;
+    overflow: hidden;
+  }
+  .dock.collapsed .dock-body {
+    display: none;
+  }
+  /* Resize handle on the map-facing edge. */
+  .dock-grip {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 7px;
+    z-index: 2;
+    cursor: col-resize;
+  }
+  .dock-left .dock-grip {
+    right: 0;
+  }
+  .dock-right .dock-grip {
+    left: 0;
+  }
+  .dock-grip:hover {
+    background: rgba(112, 90, 144, 0.25);
+  }
+  .dock.collapsed .dock-grip {
+    display: none;
+  }
+  .dock-account a {
+    font-size: 0.8rem;
+    white-space: nowrap;
+    color: var(--muted);
+    text-decoration: none;
+  }
+  .dock-account a:hover {
+    color: var(--accent);
+    text-decoration: underline;
+  }
+  .dock h1 {
     font-size: 0.98rem;
     font-weight: 500;
     margin: 0 0 0.15rem;
@@ -253,6 +399,12 @@ const clientEntry = { base, label: heading, utcOffsetMinutes: entry.utcOffsetMin
   .backlink {
     white-space: nowrap;
     font-size: 0.8rem;
+    color: var(--muted);
+    text-decoration: none;
+  }
+  .backlink:hover {
+    color: var(--accent);
+    text-decoration: underline;
   }
   .status3d {
     color: #6b655c;
@@ -328,5 +480,179 @@ const clientEntry = { base, label: heading, utcOffsetMinutes: entry.utcOffsetMin
   }
   .pilot-list li.pinned .nm {
     font-weight: 500;
+  }
+
+  /* ---- notes (annotations3d.ts) ----------------------------------------- */
+  /* Fills the right dock; the list scrolls, the head and composer don't. */
+  .notes3d {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+  }
+  .notes3d-head {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    flex-wrap: wrap;
+  }
+  .notes3d-title {
+    font-weight: 500;
+    margin-right: auto;
+  }
+  .notes3d-head button {
+    font: inherit;
+    font-size: 0.78rem;
+    padding: 0.15rem 0.45rem;
+    border: 1px solid rgba(0, 0, 0, 0.2);
+    border-radius: 6px;
+    background: #fff;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .notes3d-head button:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .notes3d-status {
+    margin: 0.3rem 0 0;
+    font-size: 0.78rem;
+    color: var(--muted);
+    line-height: 1.35;
+  }
+  .notes3d-status:empty {
+    display: none;
+  }
+  .notes3d-status.error {
+    color: #9b2c2c;
+  }
+  .notes3d-list {
+    list-style: none;
+    margin: 0.4rem 0 0;
+    padding: 0;
+    overflow-y: auto;
+    min-height: 0;
+  }
+  .notes3d-empty {
+    color: var(--muted);
+    font-size: 0.8rem;
+    line-height: 1.4;
+  }
+  .note-row {
+    display: grid;
+    grid-template-columns: 1.5em minmax(0, 1fr);
+    gap: 0.45rem;
+    padding: 0.3rem 0.25rem;
+    border-radius: 5px;
+    cursor: pointer;
+  }
+  .note-row:hover {
+    background: rgba(0, 0, 0, 0.035);
+  }
+  .note-row.focused {
+    background: rgba(112, 90, 144, 0.16);
+  }
+  /* The note's pilot has no track on this day — it can be read and deleted, but
+     there is nowhere to draw it. */
+  .note-row.orphan .note-meta {
+    text-decoration: line-through;
+  }
+  .note-index {
+    justify-self: start;
+    min-width: 1.5em;
+    padding: 0.05rem 0;
+    border-radius: 4px;
+    color: #fff;
+    font-size: 0.72rem;
+    text-align: center;
+    line-height: 1.5;
+  }
+  .note-meta {
+    color: var(--muted);
+    font-size: 0.75rem;
+    font-variant-numeric: tabular-nums;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .note-body {
+    font-size: 0.82rem;
+    line-height: 1.4;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .note-actions {
+    display: none;
+    gap: 0.3rem;
+    margin-top: 0.2rem;
+  }
+  .note-row:hover .note-actions,
+  .note-row.focused .note-actions {
+    display: flex;
+  }
+  .note-btn {
+    font: inherit;
+    font-size: 0.72rem;
+    padding: 0.1rem 0.4rem;
+    border: 1px solid rgba(0, 0, 0, 0.18);
+    border-radius: 5px;
+    background: #fff;
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .note-btn:hover:not(:disabled) {
+    color: var(--text);
+    border-color: var(--accent);
+  }
+  .note-btn.danger:hover:not(:disabled) {
+    color: #9b2c2c;
+    border-color: #9b2c2c;
+  }
+  .note-compose {
+    margin-top: 0.45rem;
+    padding: 0.5rem;
+    border: 1px solid var(--accent);
+    border-radius: 7px;
+    background: rgba(112, 90, 144, 0.06);
+  }
+  .note-compose-head {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.78rem;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .note-dot {
+    width: 0.6em;
+    height: 0.6em;
+    border-radius: 50%;
+    flex: none;
+  }
+  /* Says that the moment isn't locked in — scrubbing while this is open moves it. */
+  .note-compose-hint {
+    margin: 0.3rem 0 0;
+    color: var(--muted);
+    font-size: 0.72rem;
+    line-height: 1.35;
+  }
+  .note-compose-text {
+    width: 100%;
+    margin-top: 0.35rem;
+    padding: 0.4rem 0.5rem;
+    border: 1px solid rgba(0, 0, 0, 0.2);
+    border-radius: 6px;
+    font: inherit;
+    font-size: 0.82rem;
+    resize: vertical;
+  }
+  .note-compose-text:focus-visible {
+    outline: none;
+    border-color: var(--accent);
+  }
+  .note-compose-actions {
+    display: flex;
+    gap: 0.4rem;
+    margin-top: 0.35rem;
   }
 </style>

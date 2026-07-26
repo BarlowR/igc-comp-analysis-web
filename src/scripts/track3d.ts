@@ -24,6 +24,8 @@ import {
   type ArchivedResults,
   type Selection,
 } from './analysis';
+import { mountAnnotations, type AnnotationLayer } from './annotations3d';
+import { mountDocks } from './dock3d';
 import type { MapTurnpoint, MapTrack } from '../lib/competition';
 import { haversine } from '../lib/math';
 
@@ -47,6 +49,9 @@ async function main(): Promise<void> {
   // Cesium's widget CSS is loaded from the copied static assets rather than
   // through the bundler (Vite would try to resolve its url()s).
   ensureWidgetsCss();
+  // Restore each dock's width and collapsed state before the globe is built, so
+  // Cesium sizes its canvas to the final layout instead of resizing into it.
+  mountDocks();
 
   const loading = makeLoading();
   const statusEl = $('status3d');
@@ -55,7 +60,12 @@ async function main(): Promise<void> {
     loading.fail('No archive entry found.');
     return;
   }
-  const entry = JSON.parse(dataEl.textContent) as { base: string };
+  const entry = JSON.parse(dataEl.textContent) as {
+    base: string;
+    utcOffsetMinutes?: number | null;
+  };
+  // "/archive/<comp>/<day>" — annotations are keyed on the pair.
+  const [, comp, day] = entry.base.split('/').filter(Boolean);
 
   let data: ArchivedResults;
   try {
@@ -91,6 +101,9 @@ async function main(): Promise<void> {
   // The current scrub time, kept in sync by the timeline's frame callback; the
   // trail CallbackProperty and the follow-cam both read it.
   let scrubMs = NaN;
+  // Set once the timeline exists (mountAnnotations needs its handle); declared
+  // up here because the frame callback and the click handler both close over it.
+  let annotations: AnnotationLayer | null = null;
   const ents = drawTracks(viewer, tracks, colors, () => scrubMs);
   const byPilot = new Map(ents.map((e) => [e.pilot, e]));
 
@@ -243,10 +256,14 @@ async function main(): Promise<void> {
     }
     updateTaskTarget(t);
     refreshStats(t);
+    annotations?.onFrame(t);
   };
 
   refreshStats = buildPilotList(ents, ordered, sel, colors);
-  wirePinPicking(viewer, ents, sel);
+
+  // The click handler reads the layer through a closure: it's mounted further
+  // down, once the timeline handle it needs exists.
+  wirePinPicking(viewer, ents, sel, () => annotations);
 
   // The pinned pilot (cross-view highlight) is the one the camera follows —
   // pin a pilot (check their box + click their name, or click their track) to
@@ -271,7 +288,22 @@ async function main(): Promise<void> {
   // The shared altitude-plot scrubber, mounted into the bottom overlay. Play
   // sweeps the day in ~2.5 min (much slower than the 2D page's ~30s) so the 3D
   // flythrough is watchable.
-  mountTimeline($('timeAnchor'), mapData, sel, colors, frame, 150_000);
+  const timeline = mountTimeline($('timeAnchor'), mapData, sel, colors, frame, 150_000);
+
+  // Notes against a moment on a pilot's flight: pins on the track, text in the
+  // left panel, pennants on the scrubber. No-ops when accounts are off or nobody
+  // is signed in.
+  annotations = mountAnnotations({
+    viewer,
+    targets: ents,
+    colors,
+    sel,
+    timeline,
+    getScrubMs: () => scrubMs,
+    utcOffsetMinutes: entry.utcOffsetMinutes ?? null,
+    comp,
+    day,
+  });
 
   // Reveal the globe once it has actually painted a frame.
   loading.step('Rendering…');
@@ -784,16 +816,30 @@ function buildPilotList(
   };
 }
 
-/** Click a track or marker on the globe to pin/unpin its cross-view highlight. */
-function wirePinPicking(viewer: Cesium.Viewer, ents: PilotEnt[], sel: Selection): void {
+/**
+ * Click a track, trail or marker on the globe to pin/unpin its cross-view
+ * highlight.
+ *
+ * The annotation layer gets first refusal on every click: placing a note or
+ * focusing a pin must not also toggle pin-and-follow. One handler with an
+ * explicit precedence, rather than two handlers racing for the same event.
+ */
+function wirePinPicking(
+  viewer: Cesium.Viewer,
+  ents: PilotEnt[],
+  sel: Selection,
+  getAnnotations: () => AnnotationLayer | null,
+): void {
   const entToPilot = new Map<Cesium.Entity, string>();
   for (const pe of ents) {
     entToPilot.set(pe.line, pe.pilot);
+    entToPilot.set(pe.trail, pe.pilot);
     entToPilot.set(pe.marker, pe.pilot);
   }
   const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
   handler.setInputAction((movement: { position: Cesium.Cartesian2 }) => {
     const picked = viewer.scene.pick(movement.position);
+    if (getAnnotations()?.handleClick(picked)) return;
     const pilot = picked?.id && entToPilot.get(picked.id as Cesium.Entity);
     if (pilot && sel.has(pilot)) sel.togglePin(pilot);
   }, Cesium.ScreenSpaceEventType.LEFT_CLICK);

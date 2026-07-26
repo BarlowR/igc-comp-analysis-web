@@ -4,6 +4,7 @@
 // Pilot labels come out of IGC headers written by whatever instrument the pilot
 // flew, so everything user-visible is built with createElement/textContent —
 // never innerHTML.
+import { countMyAnnotationsByDay } from '../lib/annotations';
 import { claimPilot, listMyClaims, removeClaim, type PilotClaim } from '../lib/claims';
 import {
   compsForPilot,
@@ -114,12 +115,55 @@ function renderClaims() {
         link.href = `/archive/${day.comp}/${day.day}`;
         item.appendChild(link);
         if (day.date) item.appendChild(el('span', 'claim-day-date', day.date));
+
+        const view3d = el('a', 'claim-day-3d', '◈ 3D');
+        view3d.href = `/archive/${day.comp}/${day.day}/3d`;
+        view3d.title = 'Fly this task in 3D';
+        item.appendChild(view3d);
+
+        // Sits at the right, and only appears for tasks that actually carry
+        // notes — the count arrives after the list is painted (and not at all if
+        // the annotations table isn't reachable), so it starts hidden.
+        const notes = el('a', 'claim-day-notes');
+        notes.href = `/archive/${day.comp}/${day.day}/3d#notes`;
+        notes.hidden = true;
+        notes.dataset.dayKey = `${day.comp}/${day.day}`;
+        item.appendChild(notes);
+
         list.appendChild(item);
       }
       card.appendChild(list);
     }
 
     listEl.appendChild(card);
+  }
+
+  void paintNoteCounts();
+}
+
+/**
+ * Reveal the notes button on every task this account has written notes on.
+ *
+ * Runs after the list is painted rather than blocking it: the flights come from
+ * a static roster and shouldn't wait on a Supabase round-trip. A failure here is
+ * deliberately silent — the buttons simply stay hidden. The likeliest cause is
+ * an unmigrated project (no annotations table), and "your flights" is still
+ * perfectly usable without them.
+ */
+async function paintNoteCounts(): Promise<void> {
+  let counts: Map<string, number>;
+  try {
+    counts = await countMyAnnotationsByDay();
+  } catch {
+    return;
+  }
+  if (!listEl) return;
+  for (const node of listEl.querySelectorAll<HTMLAnchorElement>('.claim-day-notes')) {
+    const count = counts.get(node.dataset.dayKey ?? '') ?? 0;
+    if (count === 0) continue;
+    node.textContent = `${count} note${count === 1 ? '' : 's'}`;
+    node.title = 'Open the 3D view with your notes';
+    node.hidden = false;
   }
 }
 

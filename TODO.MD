@@ -83,8 +83,62 @@
         same-origin paths are honoured. It's a UI gate, not a security
         boundary — the day JSON stays public, see the decision doc.
 
-  - [ ] 3. Annotations — notes against (comp, day, pilot, time), public or
-        private, hung off the existing scrubber.
+  - [x] 3. Annotations — notes against (comp, day, pilot_key, time_ms), in the
+        3D viewer. Private to the account that wrote them; link-sharing is
+        wanted but explicitly deferred (see below).
+        Display is "pin + panel": a numbered chip on the track at the annotated
+        fix, the text in the right-hand dock, and a pennant on the altitude
+        scrubber's time axis. Click a pin to focus its row; click a row to seek
+        the playhead, show that pilot and pin them, which hands the follow-cam
+        over so the camera flies to the moment. Pins hide with their pilot's
+        track.
+        Placing one is a single button — "＋ Add note here" takes the pinned
+        pilot at the playhead. The moment stays adjustable: an open composer
+        rides the playhead (AnnotationLayer.onFrame, called from track3d's
+        frame), so scrubbing and saving moves the note. Opening an edit seeks
+        to the note first, or composing against a playhead parked elsewhere
+        would silently move it on save.
+        Anchored to time, never a fix index: the tracks are
+        downsampled, so an index moves on re-export and a timestamp doesn't.
+        src/lib/annotations.ts + src/scripts/annotations3d.ts, schema in
+        0004_annotations.sql. mountTimeline now returns a {seek, setMarkers}
+        handle, and the altitude plot takes a getMarkers callback — the only
+        changes to shared 2D/3D code. Ticks are on the Altitude plot only; the
+        Time Lost plot doesn't draw them yet.
+  - [x] 3c. Two resizable, collapsible docks in the 3D viewer — pilots left,
+        notes right, globe between them. src/scripts/dock3d.ts: each dock drags
+        by its map-facing edge and collapses to a 28 px rail carrying a sideways
+        title, with the width and collapsed state persisted per side like the
+        chart dock's height. Column widths are CSS custom properties on
+        .viewer3d, so a drag is one style write and the map's 1fr absorbs the
+        rest. Two things worth remembering: Cesium only re-reads its canvas size
+        on a window resize, so the docks dispatch a synthetic one — coalesced to
+        one per animation frame, because each costs a WebGL realloc AND an
+        altitude-plot rebuild over every pilot's profile, which locks the main
+        thread up if fired per pointermove. Narrow windows start both collapsed.
+        The account link lives in the notes dock's bar, since the viewer is
+        fixed to the viewport and covers the site nav.
+
+  - [x] 3d. "Your flights" links into the 3D view — a "◈ 3D" link on every
+        claimed task, plus a right-aligned "N notes" pill that only appears on
+        tasks this account has actually annotated. The pill points at
+        /3d#notes, and dock3d.ts opens the notes dock when it sees that hash,
+        so arriving from here never lands on a collapsed rail (it overrides for
+        that visit without rewriting the stored preference). Counts come from
+        one countMyAnnotationsByDay() query for the whole account rather than
+        one per task, run after the list paints so the static roster never
+        waits on Supabase — and swallowed on failure, since an unmigrated
+        project shouldn't break "your flights".
+
+  - [ ] 3b. Share a day's notes by link. Wanted, deliberately not built yet, and
+        nothing speculative was added to the schema for it: a share is a
+        property of a *set* of notes, and the set already has a natural key —
+        (user_id, comp, day). So it lands as its own `annotation_shares` table
+        plus a `security definer` reader function taking the token, rather than
+        a column on `annotations` or a select policy widened to anon. Sketched
+        in full at the tail of 0004_annotations.sql. The client render path is
+        already written so a note need not belong to the reader.
+
   - [ ] 4. Individual comparative results — /pilot/<slug> precomputed at build
         like the day JSONs (a query over public data, so no auth needed); the
         claims from step 2 are what say which slug is you.
@@ -97,3 +151,7 @@
   (0002_shared_claims.sql): a duplicate claim costs the real pilot nothing, and
   exclusivity broke legitimate cases (two pilots sharing a name slug, one
   person with two accounts).
+
+  - [ ] Add 3D button to the archive links
+
+  - [ ] Add 3d link to user account flights 

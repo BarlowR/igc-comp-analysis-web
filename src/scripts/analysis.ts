@@ -543,6 +543,21 @@ function initMap(holder: HTMLElement, data: MapData, sel: Selection, colors: Map
  * Shared by the 2D results page and the 3D viewer so both get the identical
  * control, colours and playback.
  */
+/** A moment worth flagging on the time axis — today, an annotation. */
+export interface TimeMarker {
+  timeMs: number;
+  /** Usually the annotated pilot's colour, so a tick keys to a track. */
+  color: string;
+}
+
+/** Handle onto a mounted scrubber, for callers that need to drive it. */
+export interface Timeline {
+  /** Jump the playhead to `ms` (stops playback, as a manual scrub does). */
+  seek(ms: number): void;
+  /** Replace the ticks drawn along the altitude plot's time axis. */
+  setMarkers(marks: TimeMarker[]): void;
+}
+
 export function mountTimeline(
   afterEl: HTMLElement,
   data: MapData,
@@ -550,7 +565,7 @@ export function mountTimeline(
   colors: Map<string, string>,
   frame: (t: number) => void,
   durationMs = 60_000,
-): void {
+): Timeline | null {
   // Global time span across every track (ignoring non-finite stamps).
   let tMin = Infinity;
   let tMax = -Infinity;
@@ -561,7 +576,7 @@ export function mountTimeline(
       if (t > tMax) tMax = t;
     }
   }
-  if (!Number.isFinite(tMin) || tMax <= tMin) return; // nothing to scrub
+  if (!Number.isFinite(tMin) || tMax <= tMin) return null; // nothing to scrub
 
   // This bar holds the play/pause button and the clock readout; the altitude
   // plot inserted after it is the actual draggable slider.
@@ -643,7 +658,10 @@ export function mountTimeline(
   const savedH = Number(localStorage.getItem(HKEY));
   if (Number.isFinite(savedH) && savedH >= 120) body.style.height = `${savedH}px`;
 
-  const drawAlt = createAltitudePlot(body, data, tMin, tMax, sel, colors, scrub);
+  // Ticks on the time axis, owned by whoever called mountTimeline (the 3D
+  // viewer's annotations). Read live by the plot so setMarkers is just a redraw.
+  let markers: TimeMarker[] = [];
+  const drawAlt = createAltitudePlot(body, data, tMin, tMax, sel, colors, scrub, () => markers);
   const drawTtg = data.timeToGo ? createTimeToGoPlot(body, data, tMin, tMax, sel, colors, scrub) : null;
   const plots: { label: string; draw: (t: number) => void }[] = [{ label: 'Altitude', draw: drawAlt }];
   if (drawTtg) plots.push({ label: 'Time Lost', draw: drawTtg });
@@ -763,6 +781,14 @@ export function mountTimeline(
   document.addEventListener('keydown', onKey);
 
   render();
+
+  return {
+    seek: scrub,
+    setMarkers(next) {
+      markers = next;
+      plots[active].draw(currentMs);
+    },
+  };
 }
 
 type MapTrack = MapData['tracks'][number];
@@ -811,7 +837,7 @@ function pointsUpTo(tr: MapTrack, t: number): [number, number][] {
  * IGC's UTC clock (so getHours() reads back UTC); `offsetMin` shifts that to the
  * competition's local time. Null offset displays UTC.
  */
-function formatClock(ms: number, offsetMin: number | null): string {
+export function formatClock(ms: number, offsetMin: number | null): string {
   const d = new Date(ms);
   const utcSecs = d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds();
   const secs = (((utcSecs + (offsetMin ?? 0) * 60) % 86400) + 86400) % 86400;
@@ -857,6 +883,7 @@ function createAltitudePlot(
   sel: Selection,
   colors: Map<string, string>,
   onScrub: (ms: number) => void,
+  getMarkers: () => TimeMarker[] = () => [],
 ): (t: number) => void {
   const wrap = document.createElement('div');
   wrap.className = 'alt-plot';
@@ -1033,6 +1060,24 @@ function createAltitudePlot(
     if (highlight) {
       const h = data.tracks.find((tr) => tr.pilot === highlight);
       if (h) drawDot(h);
+    }
+
+    // Annotation ticks: a small pennant hanging from the top of the plot at each
+    // marked moment, in the annotated pilot's colour. Drawn last so they stay
+    // legible over a dense field of traces.
+    for (const m of getMarkers()) {
+      if (!(m.timeMs >= tMin && m.timeMs <= tMax)) continue;
+      const x = xOf(m.timeMs);
+      ctx.fillStyle = m.color;
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(x - 4, PAD.t);
+      ctx.lineTo(x + 4, PAD.t);
+      ctx.lineTo(x, PAD.t + 8);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
     }
   };
 

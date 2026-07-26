@@ -103,6 +103,23 @@ decision gave up when it chose static hosting. What is gated is the *feature*,
 which is what the requirement actually asks for. If the data itself ever has to
 be gated, that re-opens toward C or D.
 
+### Annotations are private, and sharing stays out of the schema
+
+Notes are readable only by the account that wrote them — all four RLS policies on
+`annotations` are scoped to the owner, so there is no path from the anon key to
+anyone else's notes. That is a departure from `profiles` and `pilot_claims`,
+which are world-readable.
+
+Sharing a day's notes by link is wanted later. Nothing was added to the table for
+it, because a share is a property of a *set* of notes and that set already has a
+natural key — `(user_id, comp, day)`. It therefore belongs in its own
+`annotation_shares` table, read through a `security definer` function that takes
+the token, not a `visibility` column and not a select policy widened to `anon`. A
+policy would have to authenticate a token out of a request header to work from
+the browser's anon key; a function keeps the table owner-only and makes itself
+the single door, which is also what lets a share be revoked without touching a
+note. Sketched in full at the tail of `0004_annotations.sql`.
+
 ### Per-pilot results stay static
 
 "Individual comparative results" is a query over already-public data, so it is

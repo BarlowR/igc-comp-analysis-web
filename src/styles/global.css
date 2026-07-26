@@ -1144,6 +1144,43 @@ table.stats td.name {
   font-size: 0.82rem;
 }
 
+.claim-day-3d {
+  color: var(--accent);
+  font-size: 0.78rem;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.claim-day-3d:hover {
+  text-decoration: underline;
+}
+
+/* Pushed to the right of the row. Hidden until paintNoteCounts finds notes on
+   this task, so `hidden` has to beat the inline-flex below. */
+.claim-day-notes {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.1rem 0.5rem;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  color: var(--accent);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.claim-day-notes[hidden] {
+  display: none;
+}
+
+.claim-day-notes:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
 .claim-search {
   margin-top: 1.25rem;
 }
