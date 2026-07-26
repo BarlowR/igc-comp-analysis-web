@@ -251,20 +251,14 @@ export function buildPilotSelection(
   for (const tr of mapData.tracks) push(tr.pilot);
 
   // With a large field, default to just the top 20 to keep the view manageable;
-  // otherwise select everyone.
-  //
-  // Per group, not across the whole field: `ordered` lists every finisher
-  // before the first non-finisher, so a global top 20 on a day with 20+
-  // finishers selected nobody from the "Did Not Complete Task" group and left
-  // its climb chart with every dataset hidden — a chart that reads as broken.
-  // That was 8 of the 13 archived days.
+  // otherwise select everyone. Across the whole field, not per group: `ordered`
+  // lists finishers first, so on a day with 20+ finishers nobody in "Did Not
+  // Complete Task" is selected and that group's climb chart hides itself
+  // (syncChart) until you tick someone. That's intended.
   const TOP_N = 20;
   const TRUNCATE_ABOVE = 50;
   const truncated = ordered.length > TRUNCATE_ABOVE;
-  const initial = truncated
-    ? [...table.completed.slice(0, TOP_N), ...table.incomplete.slice(0, TOP_N)].map((r) => r[0].text)
-    : ordered;
-  const sel = makeSelection(ordered, initial);
+  const sel = makeSelection(ordered, truncated ? ordered.slice(0, TOP_N) : ordered);
   const colors = buildPilotColors(ordered);
   return { ordered, sel, colors, truncated, topN: TOP_N };
 }
@@ -290,7 +284,7 @@ function render(
   // charts (see buildPilotSelection for the top-20 default rule).
   const { ordered, sel, colors, truncated, topN } = buildPilotSelection(table, mapData);
   if (truncated && statusEl) {
-    statusEl.textContent += `  Showing the top ${topN} of each group by default (${ordered.length} pilots in total) — use the “deselected pilots” section or the checkboxes to show more.`;
+    statusEl.textContent += `  Showing the top ${topN} of ${ordered.length} pilots by default — use the “deselected pilots” section or the checkboxes to show more.`;
   }
 
   if (table.completed.length || climb.completed.length) {
