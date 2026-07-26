@@ -45,7 +45,7 @@ export const COMP_SUBSET: { key: string; dir: GradientDir; label: string }[] = [
 const CLIMB_RATE_LABELS = ['1ms', '2ms', '3ms', '4ms', '5ms', '>5ms'];
 export const CLIMB_RATE_TICKS = ['1 m/s', '2 m/s', '3 m/s', '4 m/s', '5 m/s', '>5 m/s'];
 
-// Final-glide height cap on the time-to-go metric. Height is credited (at 1/M) only
+// Final-glide height cap on the Time Lost metric. Height is credited (at 1/M) only
 // up to what's needed to glide to goal, h_need = h_fin + D_rem·g (g = 1/ratio);
 // surplus above that slope is worth `FINAL_GLIDE_BETA` of the normal rate (0 =
 // nothing). Above the slope the pilot is "on final glide" — the altitude-is-useless
@@ -88,12 +88,12 @@ export interface MapTrack {
   times: number[];
   /** GPS altitude (m) for each point, aligned with `points`. */
   alt: number[];
-  /** Time-to-go at par (minutes) at each point, aligned with `points`; absent if
+  /** Time Lost at par (minutes) at each point, aligned with `points`; absent if
    * the day has no usable ESS/finisher data. See timetogo.ts. */
   tau?: number[];
   /** Epoch-ms of the ESS crossing (scored completion), or null if not a finisher. */
   completionMs?: number | null;
-  /** Epoch-ms of the SSS crossing (scored start); the time-to-go plot cuts the
+  /** Epoch-ms of the SSS crossing (scored start); the Time Lost plot cuts the
    * pre-start hold off before this. Null falls back to drawing from the first fix. */
   startCrossMs?: number | null;
   /** Per fix: is the pilot above the glide slope (on final glide = "altitude is
@@ -108,8 +108,8 @@ export interface MapData {
   utcOffsetMinutes: number | null;
   /** Epoch-ms of the SSS start gate (for the start-time marker); null if unknown. */
   startMs: number | null;
-  /** Day-level par constants for the time-to-go chart; null if unavailable.
-   * `tauRef` is the common par-ghost anchor (minutes): the par pilot's time-to-go
+  /** Day-level par constants for the Time Lost chart; null if unavailable.
+   * `tauRef` is the common par-ghost anchor (minutes): the par pilot's Time Lost
    * from the start, `(dTask/Vcc − (hRef − hFin)/M)/60`. See timetogo.ts `lostSeries`;
    * L(t) = tau(t) + (t − t_gate)/60 − tauRef is "minutes behind the par ghost". */
   timeToGo: {
@@ -240,7 +240,33 @@ export class Competition {
     this.utcOffsetMinutes = utcOffsetMinutes;
   }
 
-  /** Parse an IGC file, compute competition metrics, and register the pilot. */
+  /**
+   * Rank two tracklogs for the same pilot on the same day, higher is better.
+   *
+   * A pilot can appear more than once in a day's files — a partial upload
+   * alongside the real flight (Mike Steed's chelan-us-open day 1 pair is a
+   * 344-byte stub next to a 126 km flight), or the same flight logged by two
+   * instruments. Reaching goal beats not reaching it; otherwise the track that
+   * covers more of the task is the more complete recording.
+   */
+  private static trackScore(row: PilotRow): [number, number] {
+    const distance = Number(row.stats.comp_total_distance);
+    return [row.completed ? 1 : 0, Number.isFinite(distance) ? distance : -1];
+  }
+
+  private static isBetter(candidate: PilotRow, incumbent: PilotRow): boolean {
+    const [ac, ad] = Competition.trackScore(candidate);
+    const [bc, bd] = Competition.trackScore(incumbent);
+    return ac !== bc ? ac > bc : ad > bd;
+  }
+
+  /**
+   * Parse an IGC file, compute competition metrics, and register the pilot.
+   *
+   * If this pilot already has a track for the day, the better of the two is
+   * kept (see trackScore) and the other discarded — one row per pilot, so the
+   * stats table, charts and map don't show the same person twice.
+   */
   addPilot(igcText: string, fallbackName: string): PilotRow {
     const flight = new IgcFlight(igcText, fallbackName);
     flight.buildCompMetrics(this.task);
@@ -255,8 +281,19 @@ export class Competition {
       // unaffected — they still run over the full flight above.
       ...cropAndDownsample(flight, this.task),
     };
-    this.pilots.push(row);
-    return row;
+
+    const existingIdx = this.pilots.findIndex((p) => p.name === row.name);
+    if (existingIdx === -1) {
+      this.pilots.push(row);
+      return row;
+    }
+
+    const existing = this.pilots[existingIdx];
+    if (Competition.isBetter(row, existing)) {
+      this.pilots[existingIdx] = row;
+      return row;
+    }
+    return existing;
   }
 
   // ---- map view ----------------------------------------------------------
@@ -271,7 +308,7 @@ export class Competition {
       order: tp.order,
     }));
 
-    // Time-to-go: par constants from the results, then a τ series per track. See
+    // Time Lost: par constants from the results, then a τ series per track. See
     // timetogo.ts. Guarded so a task without a usable ESS/finishers just omits it.
     const geom = buildGeom(turnpoints);
     const taskDist = geom.cx.length >= 2 ? taskDistanceM(geom) : 0;
@@ -314,7 +351,7 @@ export class Competition {
       });
 
     // Ghost anchor: h_ref = fleet-median smoothed altitude at the SSS exit;
-    // tau_ref = par time-to-go from the start (one common value). See lostSeries.
+    // tau_ref = par Time Lost from the start (one common value). See lostSeries.
     const startExitAlts = perPilot
       .map((c) => c.startExitAlt)
       .filter((v): v is number => v != null && Number.isFinite(v));

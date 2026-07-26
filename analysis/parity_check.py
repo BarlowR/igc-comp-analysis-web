@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cross-implementation parity test for the time-to-go logic.
+"""Cross-implementation parity test for the Time Lost logic.
 
 The app (`src/lib/timetogo.ts` + `competition.ts`) is a port of this prototype.
 On a built archive day, `map.tracks[].tau` is the app's per-fix τ and

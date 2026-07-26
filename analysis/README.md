@@ -5,9 +5,9 @@ keepers into the app (`src/`). Reads the same precomputed task JSON the site
 uses: `dist/archive/<comp>/<day>.json` (build it with `npm run build` if the
 `dist/` copies are missing).
 
-## `progress_prototype.py` — time-to-go race chart
+## `progress_prototype.py` — Time Lost race chart
 
-Turns a day's tracklogs into a per-pilot **time-to-go at par pace** line — a
+Turns a day's tracklogs into a per-pilot **Time Lost at par pace** line — a
 "progress vs time" view that shows *when and where* the top pilots won the race.
 
 For every pilot, at each GPS fix:
@@ -21,7 +21,7 @@ climb-minutes. Read the **slope**:
 
 | slope | meaning |
 | --- | --- |
-| **−1** | flying at par (1 min of time-to-go per min of clock) |
+| **−1** | flying at par (1 min of Time Lost per min of clock) |
 | steeper than −1 | beating the day |
 | shallower | bleeding time |
 | rising | going backwards (sinking out / off-course) |

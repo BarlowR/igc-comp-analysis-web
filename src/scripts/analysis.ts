@@ -593,7 +593,7 @@ export function mountTimeline(
   fast.textContent = '🐇';
   speedWrap.append(slow, speed, fast);
 
-  // Chart selector (Altitude / Time-to-go) lives inline in this row, right of the
+  // Chart selector (Altitude / Time Lost) lives inline in this row, right of the
   // speed slider; the clock is pushed to the far right.
   const toggleWrap = document.createElement('span');
   toggleWrap.className = 'chart-toggle';
@@ -612,7 +612,7 @@ export function mountTimeline(
     render();
   };
 
-  // Chart dock below the bar: a toggle (Altitude / Time-to-go) over a resizable
+  // Chart dock below the bar: a toggle (Altitude / Time Lost) over a resizable
   // body holding whichever plot is active. Both plots share the time axis,
   // colours, selection and scrubbing, and act as the slider.
   const scrub = (ms: number): void => {
@@ -638,7 +638,7 @@ export function mountTimeline(
   const drawAlt = createAltitudePlot(body, data, tMin, tMax, sel, colors, scrub);
   const drawTtg = data.timeToGo ? createTimeToGoPlot(body, data, tMin, tMax, sel, colors, scrub) : null;
   const plots: { label: string; draw: (t: number) => void }[] = [{ label: 'Altitude', draw: drawAlt }];
-  if (drawTtg) plots.push({ label: 'Time-to-go', draw: drawTtg });
+  if (drawTtg) plots.push({ label: 'Time Lost', draw: drawTtg });
   const wraps = Array.from(body.children) as HTMLElement[]; // one .alt-plot per plot, in order
 
   let active = 0;

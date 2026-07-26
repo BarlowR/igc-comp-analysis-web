@@ -107,3 +107,45 @@ test('Competition: reproduces archived day6 constants and satisfies the τ formu
   const table = comp.buildStatsTable();
   assert.deepEqual(table.headers, COMP_SUBSET.map((c) => c.label));
 });
+
+// ---- duplicate tracklogs --------------------------------------------------
+const DUP_DIR = fileURLToPath(new URL('../dist/archive/chelan-us-open-2026/day1/', import.meta.url));
+
+test('Competition: one row per pilot when a day holds two tracklogs for them', { timeout: 120_000 }, (t) => {
+  // chelan-us-open day 1 has two real cases: Mike Steed's 344-byte stub beside
+  // his actual 126 km flight, and Robert Barlow's flight logged twice by two
+  // instruments. Both used to produce two rows in the stats table.
+  const files = [
+    'mike_steed_2026-06-21_01.171.igc',
+    'mike_steed_2026-06-21_02.171.igc',
+    'robert_barlow_2026-06-21_01.369.igc',
+    'robert_barlow_2026-06-21_02.369.igc',
+  ];
+  if (!existsSync(DUP_DIR) || files.some((f) => !existsSync(DUP_DIR + f))) {
+    t.skip('archive not built (run `npm run build`)');
+    return;
+  }
+  const task = readFileSync(DUP_DIR + 'task.xctsk', 'utf8');
+
+  const load = (order: string[]): Competition => {
+    const comp = new Competition(task, -420);
+    for (const f of order) comp.addPilot(readFileSync(DUP_DIR + f, 'utf8'), nameFromFile(f));
+    return comp;
+  };
+
+  const comp = load(files);
+  assert.equal(comp.pilots.filter((p) => p.name === 'Mike Steed').length, 1);
+  assert.equal(comp.pilots.filter((p) => p.name === 'Robert Barlow').length, 1);
+
+  // The stub records no distance, so the real flight must be the one kept.
+  const steed = comp.pilots.find((p) => p.name === 'Mike Steed')!;
+  assert.ok(num(steed.stats.comp_total_distance) > 1000, `kept the stub: ${steed.stats.comp_total_distance}`);
+
+  // And the choice can't depend on the order files happen to be listed in.
+  const reversed = load([...files].reverse());
+  for (const name of ['Mike Steed', 'Robert Barlow']) {
+    const a = comp.pilots.find((p) => p.name === name)!;
+    const b = reversed.pilots.find((p) => p.name === name)!;
+    assert.equal(num(a.stats.comp_total_distance), num(b.stats.comp_total_distance), `${name} differs by input order`);
+  }
+});

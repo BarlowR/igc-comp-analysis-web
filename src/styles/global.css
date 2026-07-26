@@ -694,7 +694,7 @@ table.stats td.name {
   color: var(--text);
 }
 
-/* Chart dock: toggle header + resizable body holding the altitude / time-to-go
+/* Chart dock: toggle header + resizable body holding the altitude / Time Lost
    plot, linked to the map's time slider. */
 .chart-dock {
   margin-top: 0.75rem;

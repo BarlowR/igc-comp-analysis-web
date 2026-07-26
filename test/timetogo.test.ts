@@ -1,5 +1,5 @@
 /**
- * Unit tests for the time-to-go equations (src/lib/timetogo.ts), each broken out
+ * Unit tests for the Time Lost equations (src/lib/timetogo.ts), each broken out
  * and checked against analytic values or a brute-force reference. Run:
  *   node --test test/timetogo.test.ts
  *

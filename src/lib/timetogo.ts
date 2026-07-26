@@ -1,5 +1,5 @@
 /**
- * Time-to-go metric (build-time + client). Ports analysis/progress_prototype.py,
+ * Time Lost metric (build-time + client). Ports analysis/progress_prototype.py,
  * using the FAI/airscore task-optimisation model (`find_closest`).
  *
  * `buildGeom` optimises the whole task route ONCE (airscore `find_shortest_route`:
@@ -13,7 +13,7 @@
  * cylinder — while still penalising off-course flying (the route lengthens as you
  * drift sideways).
  *
- * `tauSeries` turns D_rem + smoothed height into "time-to-go at par" (minutes),
+ * `tauSeries` turns D_rem + smoothed height into "Time Lost at par" (minutes),
  * with a final-glide cap on the height credit (see its doc). `lostSeries` detrends
  * that into "minutes behind the par ghost".
  */
@@ -282,7 +282,7 @@ export function smoothAlt(times: number[], alt: number[], winMs = 7_000): number
   return out;
 }
 
-// ---- time-to-go (τ) and detrended time-lost (L) --------------------------
+// ---- Time Lost (τ) and detrended time-lost (L) --------------------------
 
 export interface TauParams {
   vccMps: number; // par cross-country speed, m/s
@@ -296,7 +296,7 @@ export interface TauParams {
 let betaWarned = false;
 
 /**
- * Time-to-go at par (minutes), with a final-glide cap on the altitude credit.
+ * Time Lost at par (minutes), with a final-glide cap on the altitude credit.
  * Height is credited at 1/M only up to what's needed to glide to goal
  * (h_need = h_fin + D_rem/glideRatio); surplus above that slope is discounted by
  * `beta`.
