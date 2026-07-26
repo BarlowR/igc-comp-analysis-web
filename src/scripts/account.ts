@@ -54,6 +54,51 @@ function cleanUrl() {
   }
 }
 
+// ---- returning to where sign-in was asked for ------------------------------
+//
+// The 3D gate sends people here as /account?next=<path>. The magic link, though,
+// comes back on its own — often in a fresh tab — so the path is also parked in
+// localStorage while the email is in flight, and consumed when a session turns
+// up. It carries a timestamp so an abandoned attempt can't redirect an unrelated
+// sign-in later; magic links expire in about an hour anyway. Opening the link on
+// a different device simply lands on /account, which is a fine fallback.
+//
+// Only same-origin paths are honoured, so ?next= can't bounce anyone off-site.
+
+const NEXT_KEY = 'igc-signin-next';
+const NEXT_TTL_MS = 60 * 60 * 1000;
+
+function safePath(path: string | null | undefined): string | null {
+  return path && path.startsWith('/') && !path.startsWith('//') ? path : null;
+}
+
+/** This page's ?next=, captured before cleanUrl() strips the query. */
+const nextParam = safePath(new URLSearchParams(window.location.search).get('next'));
+
+function rememberNext(path: string) {
+  try {
+    localStorage.setItem(NEXT_KEY, JSON.stringify({ path, at: Date.now() }));
+  } catch {
+    // Private mode / storage blocked — sign-in still works, it just ends here.
+  }
+}
+
+/** The pending return path — this page's ?next=, else a recent stored one. Clears the store. */
+function takeNext(): string | null {
+  let stored: string | null = null;
+  try {
+    const raw = localStorage.getItem(NEXT_KEY);
+    if (raw) {
+      localStorage.removeItem(NEXT_KEY);
+      const parsed = JSON.parse(raw) as { path?: string; at?: number };
+      if (parsed.at && Date.now() - parsed.at <= NEXT_TTL_MS) stored = safePath(parsed.path);
+    }
+  } catch {
+    // Unreadable or unparseable — no return path, land on /account.
+  }
+  return nextParam ?? stored;
+}
+
 /** Guards against a second onAuthStateChange firing the claims mount again. */
 let claimsMounted = false;
 
@@ -97,6 +142,14 @@ async function init() {
     show(unconfigured);
     return;
   }
+  // Already signed in and sent here by a gate: bounce straight back rather than
+  // flashing the account page. No loop risk — the gate only links here when the
+  // cached session is absent or stale.
+  if (nextParam && readCachedSession()) {
+    window.location.replace(nextParam);
+    return;
+  }
+
   // Show the signed-in panel straight away when the cache says so; only fall
   // back to "Checking your session…" when we genuinely don't know yet.
   if (!prefillFromCache()) show(loading);
@@ -112,6 +165,13 @@ async function init() {
   cleanUrl();
 
   if (session?.user) {
+    // A refresh may have revived a stale session, or the magic link may have
+    // just been exchanged — either way, honour a pending return path.
+    const dest = takeNext();
+    if (dest) {
+      window.location.replace(dest);
+      return;
+    }
     await renderSignedIn(session.user.email ?? null);
   } else {
     show(signedOut);
@@ -124,6 +184,11 @@ async function init() {
       show(signedOut);
       setStatus(signInStatus, '');
     } else if (next?.user && event === 'SIGNED_IN') {
+      const dest = takeNext();
+      if (dest) {
+        window.location.replace(dest);
+        return;
+      }
       void renderSignedIn(next.user.email ?? null);
     }
   });
@@ -133,6 +198,11 @@ signInForm?.addEventListener('submit', async (event) => {
   event.preventDefault();
   const email = emailInput?.value.trim();
   if (!email) return;
+
+  // Park the return path now: the link lands back on a bare /account, possibly
+  // in another tab, so the URL can't carry it. (Nor should it — putting a query
+  // on emailRedirectTo risks missing Supabase's redirect allow-list.)
+  if (nextParam) rememberNext(nextParam);
 
   if (signInButton) signInButton.disabled = true;
   setStatus(signInStatus, 'Sending…');

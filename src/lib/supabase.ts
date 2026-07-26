@@ -91,6 +91,23 @@ export function readCachedSession(): CachedSession | null {
 }
 
 /**
+ * Whether a session is stored at all, live or expired.
+ *
+ * readCachedSession() rejects an expired token, but expired is not the same as
+ * signed out — supabase-js refreshes those on its own. The 3D gate uses this to
+ * tell "never signed in on this device" (gate immediately, no SDK) from "token
+ * needs a refresh" (worth loading the SDK to check before turning them away).
+ */
+export function hasStoredSession(): boolean {
+  if (typeof localStorage === 'undefined') return false;
+  try {
+    return Boolean(localStorage.getItem(STORAGE_KEY));
+  } catch {
+    return false; // private mode / storage blocked
+  }
+}
+
+/**
  * The signed-in user, read from the stored session.
  *
  * Deliberately getSession() and not getUser(): getUser() revalidates against

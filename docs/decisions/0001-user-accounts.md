@@ -88,6 +88,21 @@ cases, since two pilots can share a name slug and one person can have two
 accounts (0002_shared_claims.sql). The `verified` column survives, unsettable
 from the client, as a hook for organiser approval; nothing reads it.
 
+### The 3D viewer requires an account
+
+The 3D replay is the one feature held behind sign-in, as the reason to make an
+account. `src/scripts/gate3d.ts` checks for a session and only then dynamically
+imports `track3d.ts`, so a signed-out visitor fetches ~4 KB instead of the 4.1 MB
+Cesium chunk and the day's results JSON. That also caps the Cesium Ion tile quota
+noted below at the number of people who signed up.
+
+The gate is honest about what it is: **a UI gate, not a security boundary.** The
+day JSONs under `/archive` are public and the page HTML is prerendered, so
+devtools still reach the data — gating the *data* is exactly the thing this
+decision gave up when it chose static hosting. What is gated is the *feature*,
+which is what the requirement actually asks for. If the data itself ever has to
+be gated, that re-opens toward C or D.
+
 ### Per-pilot results stay static
 
 "Individual comparative results" is a query over already-public data, so it is

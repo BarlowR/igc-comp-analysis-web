@@ -40,6 +40,23 @@ const clientEntry = { base, label: heading, utcOffsetMinutes: entry.utcOffsetMin
       </div>
     </div>
 
+    <!-- Sign-in wall, revealed by gate3d.ts in place of the loading overlay when
+         there's no session. The viewer script is never loaded in that case. -->
+    <div id="gate3d" class="gate3d" hidden>
+      <div class="gate3d-box">
+        <div class="gate3d-icon" aria-hidden="true">◈</div>
+        <h1>Fly this day in 3D</h1>
+        <p class="gate3d-day">{heading}</p>
+        <p class="gate3d-copy">
+          3D Replay is for account holders. Sign-up is free: 
+        </p>
+        <a id="gate3d-signin" class="account-btn gate3d-btn" href="/account">
+          Sign in or create an account
+        </a>
+        <a class="gate3d-back" href={base}>← Back to the 2D analysis</a>
+      </div>
+    </div>
+
     <!-- Shared altitude-plot scrubber (mountTimeline) is inserted after this anchor. -->
     <div class="viewer3d-bottom"><div id="timeAnchor"></div></div>
 
@@ -60,8 +77,10 @@ const clientEntry = { base, label: heading, utcOffsetMinutes: entry.utcOffsetMin
   <script type="application/json" id="archive-entry" set:html={JSON.stringify(clientEntry)} />
   <!-- Must run before the Cesium module so it finds its static assets under /cesium. -->
   <script is:inline>window.CESIUM_BASE_URL = "/cesium/";</script>
+  <!-- The gate, not the viewer: track3d.ts is imported from there once a session
+       checks out, so a signed-out visitor never downloads Cesium. -->
   <script>
-    import '../../../../scripts/track3d.ts';
+    import '../../../../scripts/gate3d.ts';
   </script>
 </Base>
 
@@ -136,6 +155,65 @@ const clientEntry = { base, label: heading, utcOffsetMinutes: entry.utcOffsetMin
     to {
       transform: rotate(360deg);
     }
+  }
+
+  /* Sign-in wall. Same full-cover footprint as the loading overlay — .viewer3d
+     is fixed inset:0, so this hides the top nav too and has to carry its own way
+     out (the sign-in button and the back link). */
+  .gate3d {
+    position: absolute;
+    inset: 0;
+    z-index: 25;
+    display: grid;
+    place-items: center;
+    padding: 1.5rem;
+    background: var(--bg, #e7e7e7);
+  }
+  /* display:grid would otherwise beat the hidden attribute. */
+  .gate3d[hidden] {
+    display: none;
+  }
+  .gate3d-box {
+    max-width: min(90vw, 26rem);
+    text-align: center;
+  }
+  .gate3d-icon {
+    font-size: 1.6rem;
+    color: var(--accent);
+    margin-bottom: 0.5rem;
+  }
+  .gate3d h1 {
+    font-size: 1.35rem;
+    font-weight: 400;
+    margin: 0;
+    line-height: 1.25;
+  }
+  .gate3d-day {
+    margin: 0.3rem 0 0;
+    color: var(--muted);
+    font-size: 0.9rem;
+  }
+  .gate3d-copy {
+    margin: 1rem 0 1.4rem;
+    color: var(--text);
+    line-height: 1.5;
+  }
+  /* .account-btn is styled for <button>; as a link it needs these two. */
+  .gate3d-btn {
+    display: inline-block;
+    text-decoration: none;
+  }
+  .gate3d-back {
+    display: block;
+    margin-top: 1.2rem;
+    font-size: 0.85rem;
+    color: var(--muted);
+    text-decoration: none;
+  }
+  .gate3d-back:hover,
+  .gate3d-back:focus-visible {
+    color: var(--accent);
+    text-decoration: underline;
   }
 
   /* Bottom dock holding the shared altitude-plot scrubber. */

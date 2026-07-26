@@ -70,6 +70,19 @@
         entry .4 in chelan2026 and .3 in chelan-us-open-2026, and the names
         themselves are dirty ("casey gerstle", "(Bruno) Subarno.1177.131",
         one blank) — see src/lib/pilots.ts.
+  - [x] 2b. The 3D view requires an account — the reason to sign up.
+        src/scripts/gate3d.ts is what the 3D page imports now; it checks the
+        session and only then dynamically imports track3d.ts, so a signed-out
+        visitor gets a sign-in wall for ~4 KB instead of the 4.1 MB Cesium
+        chunk plus the day JSON. The "View in 3D" pill on the day page picks
+        up a "· sign in" note when signed out (nav-account.ts, which already
+        reads the session on every page). Sign-in returns you to the viewer:
+        the gate links to /account?next=<path>, and account.ts parks that path
+        in localStorage while the magic-link email is out, since the link
+        comes back on a bare /account — possibly in a different tab. Only
+        same-origin paths are honoured. It's a UI gate, not a security
+        boundary — the day JSON stays public, see the decision doc.
+
   - [ ] 3. Annotations — notes against (comp, day, pilot, time), public or
         private, hung off the existing scrubber.
   - [ ] 4. Individual comparative results — /pilot/<slug> precomputed at build

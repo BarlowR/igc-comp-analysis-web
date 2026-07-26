@@ -29,9 +29,12 @@ const heading = entry.title ?? `${entry.compLabel ?? entry.comp} — ${entry.day
 <Base title={`${heading} — Archive`}>
   <header class="hero">
     <h1>{heading}</h1>
+    {/* The 3D view needs an account; nav-account.ts unhides the note when
+        there's no session. */}
     <a class="view3d-link" href={`${base}/3d`}>
       <span class="view3d-icon" aria-hidden="true">◈</span>
       View in 3D
+      <span class="view3d-note" data-account-only-note hidden>· sign in</span>
       <span class="view3d-arrow" aria-hidden="true">→</span>
     </a>
   </header>
@@ -78,6 +81,10 @@ const heading = entry.title ?? `${entry.compLabel ?? entry.comp} — ${entry.day
     outline: none;
   }
   .view3d-icon {
+    font-size: 0.85em;
+  }
+  .view3d-note {
+    opacity: 0.7;
     font-size: 0.85em;
   }
   .view3d-arrow {
