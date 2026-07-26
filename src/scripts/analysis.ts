@@ -302,9 +302,14 @@ function render(
   if (table.incomplete.length || climb.incomplete.length) {
     resultsEl.appendChild(group('Did Not Complete Task', table, table.incomplete, false, climb.incomplete, sel, colors, timeLoss));
   }
-  // After the tables are in the DOM, so a hook that pins a pilot reaches a
-  // subscriber that can act on it.
-  hooks.onReady?.(sel, ordered);
+  // On the next frame, not synchronously: group() builds each chart and runs its
+  // first syncChart() while the card is still detached, so the chart has no size
+  // yet and its first paint lands only once the browser has attached and laid it
+  // out. A hook that changes the selection here — auto-pinning the signed-in
+  // pilot's result — re-enters chart.update() before that has happened, and the
+  // pending paint is dropped: correct dataset state, blank canvas.
+  const onReady = hooks.onReady;
+  if (onReady) requestAnimationFrame(() => onReady(sel, ordered));
   resultsEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
