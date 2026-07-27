@@ -7,7 +7,8 @@ import Base from '../layouts/Base.astro';
 <Base title="Account — Comp Tracklog Analysis">
   <header class="hero">
     <h1>Account</h1>
-    <p>Sign in to view in 3D and claim your results across comps.</p>
+    <!-- A pitch for signing in; account.ts drops it once you have. -->
+    <p id="account-tagline">Sign in to view in 3D, claim results, and annotate flights.</p>
   </header>
 
   <main>
@@ -52,6 +53,14 @@ import Base from '../layouts/Base.astro';
         <input id="claim-query" type="search" autocomplete="off" placeholder="Type your name as it appears on comp trackers" />
       </form>
       <div id="claim-results" class="claim-results"></div>
+
+      <!-- Notes you've left on flights you haven't claimed. Stays hidden until
+           account-claims.ts finds any. -->
+      <div id="annotated-section" hidden>
+        <div class="account-divider"></div>
+        <h3>Annotated Flights</h3>
+        <div id="annotated-list" class="claims-list"></div>
+      </div>
 
       <div class="account-divider"></div>
 

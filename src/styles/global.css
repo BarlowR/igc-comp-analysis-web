@@ -687,6 +687,10 @@ table.stats td.name {
   background: var(--accent-strong);
 }
 
+.time-slider-speed {
+  width: 100px;
+}
+
 .time-slider-label {
   flex: none;
   font-variant-numeric: tabular-nums;
@@ -1142,6 +1146,15 @@ table.stats td.name {
 .claim-day-date {
   color: var(--muted);
   font-size: 0.82rem;
+}
+
+/* Whose track the notes sit on, in "Flights you've annotated". */
+.claim-day-pilots {
+  color: var(--muted);
+  font-size: 0.82rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .claim-day-3d {

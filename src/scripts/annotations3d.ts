@@ -103,15 +103,17 @@ export function mountAnnotations(opts: AnnotationOptions): AnnotationLayer {
   if (!host || !session) return INERT;
   showNotesDock();
 
-  // The viewer is fixed to the whole viewport, so it covers the site nav — this
-  // is the only route to the account page from here.
-  const accountSlot = document.getElementById('notes3dAccount');
-  if (accountSlot) {
+  // The viewer is fixed to the whole viewport, so it covers the site nav — these
+  // are the only route to the account page from here. Two slots: the notes dock
+  // bar on a wide screen, the phone header on a narrow one. Only one is ever
+  // visible, and which is the stylesheet's business, so fill both.
+  const who = session.displayName?.trim() || session.email?.split('@')[0] || 'Account';
+  for (const slot of document.querySelectorAll('.dock-account')) {
     const link = document.createElement('a');
     link.href = '/account';
-    link.textContent = session.displayName?.trim() || session.email?.split('@')[0] || 'Account';
+    link.textContent = who;
     link.title = session.email ?? 'Account';
-    accountSlot.replaceChildren(link);
+    slot.replaceChildren(link);
   }
 
   const listEl = document.getElementById('notes3dList') as HTMLUListElement;

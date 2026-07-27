@@ -44,26 +44,41 @@ export async function listAnnotationsForDay(comp: string, day: string): Promise<
   return (data ?? []) as Annotation[];
 }
 
+/** One archived day this account has written notes on. */
+export interface AnnotatedDay {
+  comp: string;
+  day: string;
+  /** How many notes, across every pilot on that day. */
+  count: number;
+  /** The pilots annotated, first-noted first. Labels, falling back to keys. */
+  pilots: string[];
+}
+
 /**
- * How many notes this account holds on each archived day, keyed "comp/day".
+ * Every archived day this account holds notes on, keyed "comp/day".
  *
- * One query for the whole account: the account page needs a count per flight,
- * and a select-per-day would be dozens of round-trips for a few hundred bytes.
- * Only the two key columns come back, so the rows stay tiny.
+ * One query for the whole account: the account page needs this per flight, and
+ * a select-per-day would be dozens of round-trips for a few hundred bytes. Only
+ * the identifying columns come back — never the bodies — so the rows stay tiny.
  */
-export async function countMyAnnotationsByDay(): Promise<Map<string, number>> {
+export async function listMyAnnotatedDays(): Promise<Map<string, AnnotatedDay>> {
   const sb = await getSupabase();
   const user = await currentUser();
-  const counts = new Map<string, number>();
-  if (!user) return counts;
+  const days = new Map<string, AnnotatedDay>();
+  if (!user) return days;
 
-  const { data, error } = await sb.from('annotations').select('comp, day');
+  const { data, error } = await sb.from('annotations').select('comp, day, pilot_key, pilot_label');
   if (error) throw error;
-  for (const row of (data ?? []) as { comp: string; day: string }[]) {
+  type Row = Pick<Annotation, 'comp' | 'day' | 'pilot_key' | 'pilot_label'>;
+  for (const row of (data ?? []) as Row[]) {
     const key = `${row.comp}/${row.day}`;
-    counts.set(key, (counts.get(key) ?? 0) + 1);
+    const entry = days.get(key) ?? { comp: row.comp, day: row.day, count: 0, pilots: [] };
+    entry.count += 1;
+    const pilot = row.pilot_label ?? row.pilot_key;
+    if (!entry.pilots.includes(pilot)) entry.pilots.push(pilot);
+    days.set(key, entry);
   }
-  return counts;
+  return days;
 }
 
 export interface NewAnnotation {

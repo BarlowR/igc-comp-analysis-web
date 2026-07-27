@@ -129,6 +129,8 @@
         one per task, run after the list paints so the static roster never
         waits on Supabase — and swallowed on failure, since an unmigrated
         project shouldn't break "your flights".
+  
+  - [x] Fix mobile view
 
   - [ ] 3b. Share a day's notes by link. Wanted, deliberately not built yet, and
         nothing speculative was added to the schema for it: a share is a
@@ -152,6 +154,6 @@
   exclusivity broke legitimate cases (two pilots sharing a name slug, one
   person with two accounts).
 
-  - [ ] Add 3D button to the archive links
+  - [x] Add 3D button to the archive links
 
-  - [ ] Add 3d link to user account flights 
+  - [x] Add 3d link to user account flights 

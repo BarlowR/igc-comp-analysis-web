@@ -1,16 +1,19 @@
 // "Your flights" on the account page: claim your name in the archive, then see
-// every task you flew.
+// every task you flew. Below it, "Flights you've annotated" catches the tasks
+// this account has written notes on without claiming — someone else's track, or
+// your own before the name is claimed.
 //
 // Pilot labels come out of IGC headers written by whatever instrument the pilot
 // flew, so everything user-visible is built with createElement/textContent —
 // never innerHTML.
-import { countMyAnnotationsByDay } from '../lib/annotations';
+import { listMyAnnotatedDays, type AnnotatedDay } from '../lib/annotations';
 import { claimPilot, listMyClaims, removeClaim, type PilotClaim } from '../lib/claims';
 import {
   compsForPilot,
   fetchRoster,
   searchPilots,
   type Roster,
+  type RosterDay,
   type RosterPilot,
 } from '../lib/roster';
 
@@ -19,6 +22,8 @@ const statusEl = document.getElementById('claims-status');
 const formEl = document.getElementById('claim-form') as HTMLFormElement | null;
 const queryEl = document.getElementById('claim-query') as HTMLInputElement | null;
 const resultsEl = document.getElementById('claim-results');
+const annotatedEl = document.getElementById('annotated-list');
+const annotatedSection = document.getElementById('annotated-section');
 
 let roster: Roster | null = null;
 let claims: PilotClaim[] = [];
@@ -55,15 +60,46 @@ function claimedPilots(): Map<string, PilotClaim[]> {
   return byKey;
 }
 
+/** The archived tasks one pilot's claims cover, in roster order. */
+function daysForClaims(group: PilotClaim[], pilot: RosterPilot | undefined): RosterDay[] {
+  // A name claim (day null) covers every day this pilot flew in that comp; a
+  // one-off claim covers just its own day.
+  const ownedComps = new Set(group.filter((c) => c.day === null).map((c) => c.comp));
+  const ownedDays = new Set(group.filter((c) => c.day !== null).map((c) => `${c.comp}/${c.day}`));
+  return (pilot?.flights ?? [])
+    .map((i) => roster!.days[i])
+    .filter((d) => d && (ownedComps.has(d.comp) || ownedDays.has(`${d.comp}/${d.day}`)));
+}
+
+/** A task row: its name, date and 3D link. Callers append their own extras. */
+function dayRow(day: RosterDay): HTMLLIElement {
+  const item = el('li', 'claim-day');
+  const link = el('a', 'claim-day-link', day.dayLabel);
+  link.href = `/archive/${day.comp}/${day.day}`;
+  item.appendChild(link);
+  if (day.date) item.appendChild(el('span', 'claim-day-date', day.date));
+
+  const view3d = el('a', 'claim-day-3d', '◈ 3D');
+  view3d.href = `/archive/${day.comp}/${day.day}/3d`;
+  view3d.title = 'Fly this task in 3D';
+  item.appendChild(view3d);
+  return item;
+}
+
+/** The "N notes" pill linking into the 3D view's notes panel. */
+function notesPill(day: { comp: string; day: string }, count: number): HTMLAnchorElement {
+  const notes = el('a', 'claim-day-notes', `${count} note${count === 1 ? '' : 's'}`);
+  notes.href = `/archive/${day.comp}/${day.day}/3d#notes`;
+  notes.title = 'Open the 3D view with your notes';
+  return notes;
+}
+
 function renderClaims() {
   if (!listEl) return;
   listEl.replaceChildren();
 
   const byKey = claimedPilots();
-  if (byKey.size === 0) {
-    listEl.appendChild(el('p', 'field-hint', 'No flights claimed yet.'));
-    return;
-  }
+  if (byKey.size === 0) listEl.appendChild(el('p', 'field-hint', 'No flights claimed yet.'));
 
   for (const [key, group] of byKey) {
     const pilot = roster?.pilots.find((p) => p.key === key);
@@ -90,15 +126,7 @@ function renderClaims() {
     head.appendChild(drop);
     card.appendChild(head);
 
-    // The tasks themselves. A name claim (day null) covers every day this pilot
-    // flew in that comp; a one-off claim covers just its own day.
-    const ownedComps = new Set(group.filter((c) => c.day === null).map((c) => c.comp));
-    const ownedDays = new Set(
-      group.filter((c) => c.day !== null).map((c) => `${c.comp}/${c.day}`),
-    );
-    const days = (pilot?.flights ?? [])
-      .map((i) => roster!.days[i])
-      .filter((d) => d && (ownedComps.has(d.comp) || ownedDays.has(`${d.comp}/${d.day}`)));
+    const days = daysForClaims(group, pilot);
 
     if (days.length === 0) {
       card.appendChild(el('p', 'field-hint', 'No archived tasks found for this pilot.'));
@@ -110,16 +138,7 @@ function renderClaims() {
           lastComp = day.comp;
           list.appendChild(el('li', 'claim-comp', day.compLabel));
         }
-        const item = el('li', 'claim-day');
-        const link = el('a', 'claim-day-link', day.dayLabel);
-        link.href = `/archive/${day.comp}/${day.day}`;
-        item.appendChild(link);
-        if (day.date) item.appendChild(el('span', 'claim-day-date', day.date));
-
-        const view3d = el('a', 'claim-day-3d', '◈ 3D');
-        view3d.href = `/archive/${day.comp}/${day.day}/3d`;
-        view3d.title = 'Fly this task in 3D';
-        item.appendChild(view3d);
+        const item = dayRow(day);
 
         // Sits at the right, and only appears for tasks that actually carry
         // notes — the count arrives after the list is painted (and not at all if
@@ -138,33 +157,83 @@ function renderClaims() {
     listEl.appendChild(card);
   }
 
-  void paintNoteCounts();
+  void paintAnnotations();
 }
 
 /**
- * Reveal the notes button on every task this account has written notes on.
+ * Fold this account's notes into the page: a count on every claimed task that
+ * carries them, and a section listing the annotated tasks that no claim covers.
  *
- * Runs after the list is painted rather than blocking it: the flights come from
- * a static roster and shouldn't wait on a Supabase round-trip. A failure here is
- * deliberately silent — the buttons simply stay hidden. The likeliest cause is
- * an unmigrated project (no annotations table), and "your flights" is still
- * perfectly usable without them.
+ * Runs after the claim list is painted rather than blocking it: the flights come
+ * from a static roster and shouldn't wait on a Supabase round-trip. A failure
+ * here is deliberately silent — the counts stay hidden and the section stays
+ * closed. The likeliest cause is an unmigrated project (no annotations table),
+ * and "your flights" is still perfectly usable without them.
  */
-async function paintNoteCounts(): Promise<void> {
-  let counts: Map<string, number>;
+async function paintAnnotations(): Promise<void> {
+  let annotated: Map<string, AnnotatedDay>;
   try {
-    counts = await countMyAnnotationsByDay();
+    annotated = await listMyAnnotatedDays();
   } catch {
     return;
   }
   if (!listEl) return;
+
+  const claimedKeys = new Set<string>();
   for (const node of listEl.querySelectorAll<HTMLAnchorElement>('.claim-day-notes')) {
-    const count = counts.get(node.dataset.dayKey ?? '') ?? 0;
+    const key = node.dataset.dayKey ?? '';
+    claimedKeys.add(key);
+    const count = annotated.get(key)?.count ?? 0;
     if (count === 0) continue;
     node.textContent = `${count} note${count === 1 ? '' : 's'}`;
     node.title = 'Open the 3D view with your notes';
     node.hidden = false;
   }
+
+  renderAnnotated([...annotated.values()].filter((d) => !claimedKeys.has(`${d.comp}/${d.day}`)));
+}
+
+/** Roster order for a "comp/day", so annotated tasks list the way claims do. */
+function rosterIndex(day: AnnotatedDay): number {
+  const i = roster?.days.findIndex((d) => d.comp === day.comp && d.day === day.day) ?? -1;
+  // A day the archive no longer carries still gets listed, just last.
+  return i < 0 ? Number.MAX_SAFE_INTEGER : i;
+}
+
+/** "Flights you've annotated": notes on tasks no claim of this account covers. */
+function renderAnnotated(days: AnnotatedDay[]) {
+  if (!annotatedEl || !annotatedSection) return;
+  annotatedSection.toggleAttribute('hidden', days.length === 0);
+  annotatedEl.replaceChildren();
+  if (days.length === 0) return;
+
+  const card = el('div', 'claim-card');
+  const list = el('ul', 'claim-days');
+  let lastComp = '';
+  for (const entry of [...days].sort((a, b) => rosterIndex(a) - rosterIndex(b))) {
+    const day = roster?.days.find((d) => d.comp === entry.comp && d.day === entry.day) ?? {
+      // Fall back to the raw ids for a task that has left the archive.
+      comp: entry.comp,
+      compLabel: entry.comp,
+      day: entry.day,
+      dayLabel: entry.day,
+      date: null,
+    };
+
+    if (day.comp !== lastComp) {
+      lastComp = day.comp;
+      list.appendChild(el('li', 'claim-comp', day.compLabel));
+    }
+
+    const item = dayRow(day);
+    // Whose track the notes are on — the point of this section, since it isn't
+    // a pilot you've claimed.
+    item.appendChild(el('span', 'claim-day-pilots', entry.pilots.join(', ')));
+    item.appendChild(notesPill({ comp: entry.comp, day: entry.day }, entry.count));
+    list.appendChild(item);
+  }
+  card.appendChild(list);
+  annotatedEl.appendChild(card);
 }
 
 function renderSearchResults(matches: RosterPilot[]) {

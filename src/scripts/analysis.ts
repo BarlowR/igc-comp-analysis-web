@@ -531,7 +531,8 @@ function initMap(holder: HTMLElement, data: MapData, sel: Selection, colors: Map
     }
   };
 
-  mountTimeline(holder, data, sel, colors, leafletFrame);
+  // Altitude only here; Time Lost is a 3D-view chart.
+  mountTimeline(holder, data, sel, colors, leafletFrame, undefined, { timeLost: false });
 }
 
 /**
@@ -541,7 +542,8 @@ function initMap(holder: HTMLElement, data: MapData, sel: Selection, colors: Map
  * draggable slider. The bar + plot are inserted right after `afterEl`.
  *
  * Shared by the 2D results page and the 3D viewer so both get the identical
- * control, colours and playback.
+ * control, colours and playback. `opts.timeLost` adds the Time Lost chart
+ * alongside altitude — the 3D viewer only; the 2D page shows altitude alone.
  */
 /** A moment worth flagging on the time axis — today, an annotation. */
 export interface TimeMarker {
@@ -565,6 +567,7 @@ export function mountTimeline(
   colors: Map<string, string>,
   frame: (t: number) => void,
   durationMs = 60_000,
+  opts: { timeLost?: boolean } = {},
 ): Timeline | null {
   // Global time span across every track (ignoring non-finite stamps).
   let tMin = Infinity;
@@ -604,7 +607,7 @@ export function mountTimeline(
   speed.step = '0.001';
   speed.value = String(durToVal(sweepMs));
   speed.title = 'Playback speed';
-  speed.style.width = '100px';
+  speed.className = 'time-slider-speed'; // width lives in CSS: phones want it shorter
   speed.addEventListener('input', () => {
     sweepMs = valToDur(Number(speed.value));
   });
@@ -616,8 +619,8 @@ export function mountTimeline(
   fast.textContent = '🐇';
   speedWrap.append(slow, speed, fast);
 
-  // Chart selector (Altitude / Time Lost) lives inline in this row, right of the
-  // speed slider; the clock is pushed to the far right.
+  // Chart selector lives inline in this row, right of the speed slider; the
+  // clock is pushed to the far right. It stays empty when there's only one plot.
   const toggleWrap = document.createElement('span');
   toggleWrap.className = 'chart-toggle';
   label.style.marginLeft = 'auto';
@@ -635,9 +638,10 @@ export function mountTimeline(
     render();
   };
 
-  // Chart dock below the bar: a toggle (Altitude / Time Lost) over a resizable
-  // body holding whichever plot is active. Both plots share the time axis,
-  // colours, selection and scrubbing, and act as the slider.
+  // Chart dock below the bar: a toggle over a resizable body holding whichever
+  // plot is active. Altitude always; Time Lost only where the caller asks for it
+  // (the 3D viewer) and the day has the data. Every plot shares the time axis,
+  // colours, selection and scrubbing, and acts as the slider.
   const scrub = (ms: number): void => {
     stop(); // a manual scrub interrupts playback
     setTime(ms);
@@ -654,15 +658,23 @@ export function mountTimeline(
   bar.insertAdjacentElement('beforebegin', grip); // resize grip sits above the play row
 
   // Restore a user-set height (persisted across visits); CSS supplies the default.
+  // The store is shared with wider screens, where a comfortable chart is taller
+  // than a phone can give up — so cap it there rather than bury the map.
   const HKEY = 'chartDockHeight';
   const savedH = Number(localStorage.getItem(HKEY));
-  if (Number.isFinite(savedH) && savedH >= 120) body.style.height = `${savedH}px`;
+  const capH = window.innerWidth <= 700 ? window.innerHeight * 0.4 : Infinity;
+  if (Number.isFinite(savedH) && savedH >= 120) {
+    body.style.height = `${Math.round(Math.min(savedH, capH))}px`;
+  }
 
   // Ticks on the time axis, owned by whoever called mountTimeline (the 3D
   // viewer's annotations). Read live by the plot so setMarkers is just a redraw.
   let markers: TimeMarker[] = [];
   const drawAlt = createAltitudePlot(body, data, tMin, tMax, sel, colors, scrub, () => markers);
-  const drawTtg = data.timeToGo ? createTimeToGoPlot(body, data, tMin, tMax, sel, colors, scrub) : null;
+  const drawTtg =
+    opts.timeLost !== false && data.timeToGo
+      ? createTimeToGoPlot(body, data, tMin, tMax, sel, colors, scrub)
+      : null;
   const plots: { label: string; draw: (t: number) => void }[] = [{ label: 'Altitude', draw: drawAlt }];
   if (drawTtg) plots.push({ label: 'Time Lost', draw: drawTtg });
   const wraps = Array.from(body.children) as HTMLElement[]; // one .alt-plot per plot, in order

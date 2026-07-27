@@ -29,6 +29,14 @@ const clientEntry = { base, label: heading, utcOffsetMinutes: entry.utcOffsetMin
 
 <Base title={`${heading} — 3D`}>
   <div class="viewer3d no-right">
+    <!-- Phones only. The viewer covers the site nav, and the dock bars that
+         carry these links on a wider screen are folded inside drawers here —
+         so with both drawers shut there would be no way out of the page. -->
+    <header class="viewer3d-top">
+      <a class="backlink" href={base}>← 2D analysis</a>
+      <span class="dock-account"></span>
+    </header>
+
     <div id="cesiumContainer"></div>
 
     <!-- Full-screen loading overlay; track3d.ts advances the step text and fades it out. -->
@@ -132,11 +140,18 @@ const clientEntry = { base, label: heading, utcOffsetMinutes: entry.utcOffsetMin
     inset: 0;
     display: grid;
     grid-template-columns: var(--dock-left) 1fr var(--dock-right);
-    grid-template-rows: 1fr auto;
+    /* The top row is a phone's header; it has no item on wider screens and
+       collapses to nothing there. */
+    grid-template-rows: auto 1fr auto;
     grid-template-areas:
+      'top top top'
       'left map right'
       'slider slider slider';
     background: var(--bg, #e7e7e7);
+  }
+  .viewer3d-top {
+    grid-area: top;
+    display: none;
   }
   /* No notes dock (accounts off, or not signed in): collapse its column away. */
   .viewer3d.no-right {
@@ -272,6 +287,41 @@ const clientEntry = { base, label: heading, utcOffsetMinutes: entry.utcOffsetMin
   }
 
   /* ---- side docks (dock3d.ts) ------------------------------------------- */
+  /* Registering the two column widths is what makes them animatable: an
+     unregistered custom property is just a token and jumps. dock3d.ts writes
+     them, the grid above consumes them, and the transition below carries a dock
+     open or shut instead of snapping it. */
+  @property --dock-left {
+    syntax: '<length>';
+    inherits: true;
+    initial-value: 320px;
+  }
+  @property --dock-right {
+    syntax: '<length>';
+    inherits: true;
+    initial-value: 320px;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .viewer3d {
+      transition:
+        --dock-left 220ms ease,
+        --dock-right 220ms ease;
+    }
+    /* A drag is direct manipulation: the edge belongs under the pointer, not
+       220ms behind it. */
+    .viewer3d.dock-dragging {
+      transition: none;
+    }
+    /* Phones: the panel slides up out of the tab row, which doesn't move. */
+    .viewer3d.compact .dock-body {
+      transition:
+        height 220ms ease,
+        padding-top 220ms ease,
+        padding-bottom 220ms ease;
+    }
+  }
+
   .dock {
     position: relative;
     display: flex;
@@ -355,6 +405,9 @@ const clientEntry = { base, label: heading, utcOffsetMinutes: entry.utcOffsetMin
     min-height: 0;
     padding: 0.2rem 0.9rem 0.75rem;
     overflow: hidden;
+    /* Sizing context for the pilot rows: they answer to the dock's width, which
+       is dragged and screen-dependent, not to the viewport's. */
+    container-type: inline-size;
   }
   .dock.collapsed .dock-body {
     display: none;
@@ -480,6 +533,31 @@ const clientEntry = { base, label: heading, utcOffsetMinutes: entry.utcOffsetMin
   }
   .pilot-list li.pinned .nm {
     font-weight: 500;
+  }
+
+  /* A narrow dock — dragged in, or a phone sheet — can't hold six columns, and
+     six columns of nothing is worse than four that read. Height and speed go;
+     rank, colour, name and altitude stay. Column 4 is the altitude stat, 5 and 6
+     the climb rate and speed (see the row built in track3d.ts). */
+  @container (max-width: 280px) {
+    .pilot-list li {
+      grid-template-columns: 1.6em 1.15em minmax(0, 1fr) 3.4em;
+    }
+    .pilot-list li > :nth-child(5),
+    .pilot-list li > :nth-child(6) {
+      display: none;
+    }
+  }
+
+  /* Half a phone screen. Altitude goes too — a row that can't name its pilot
+     isn't telling you anything. */
+  @container (max-width: 205px) {
+    .pilot-list li {
+      grid-template-columns: 1.6em 1.15em minmax(0, 1fr);
+    }
+    .pilot-list li > :nth-child(4) {
+      display: none;
+    }
   }
 
   /* ---- notes (annotations3d.ts) ----------------------------------------- */
@@ -654,5 +732,200 @@ const clientEntry = { base, label: heading, utcOffsetMinutes: entry.utcOffsetMin
     display: flex;
     gap: 0.4rem;
     margin-top: 0.35rem;
+  }
+
+  /* ---- phones (dock3d.ts adds .compact below the same breakpoint) --------
+     A dock wide enough to read costs more width than a phone can spare, so the
+     docks give up their columns and become drawers up from the bottom of the
+     map: full width, one at a time, closing to a tab in a bottom corner. Both
+     move into the map cell rather than going position:absolute, which is what
+     keeps them inside the map row — the scrubber below is the one control that
+     must never be covered. */
+  @media (max-width: 700px) {
+    /* Not gated on .compact: the way out of the viewer shouldn't wait on the
+       dock script having run. */
+    .viewer3d-top {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      padding: 0.4rem 0.75rem;
+      background: #fff;
+      border-bottom: 1px solid rgba(0, 0, 0, 0.12);
+    }
+    .viewer3d-top .dock-account {
+      margin-left: auto;
+    }
+    /* Now that the header carries them, the copies in the dock bars are noise. */
+    .viewer3d.compact .dock-bar .backlink,
+    .viewer3d.compact .dock-bar .dock-account {
+      display: none;
+    }
+    /* Each dock is a tab on the map's bottom edge — half the width each, always
+       there, open or shut. Opening doesn't move the tab; it grows the panel out
+       from behind the tab row. */
+    .viewer3d.compact .dock {
+      --drawer-h: min(50vh, 30rem);
+      --tab-h: 2.6rem;
+      grid-area: map;
+      align-self: end;
+      flex-direction: row;
+      align-items: center;
+      justify-content: center;
+      width: 50%;
+      height: var(--tab-h);
+      z-index: 8;
+      /* Only the top edge and the seam between the two tabs are borders worth
+         drawing: a side border against the screen edge reads as a stray line of
+         background down the outside of the bar. */
+      border: none;
+      border-top: 1px solid rgba(0, 0, 0, 0.14);
+      /* The tab itself opens and shuts the drawer (dock3d.ts) — the chevron is
+         a label for that, not the only way in. */
+      cursor: pointer;
+    }
+    .viewer3d.compact .dock-body {
+      cursor: auto;
+    }
+    /* A shut tab sits above the open one's panel, so the way across is never
+       buried — the two together always read as one bar. */
+    .viewer3d.compact .dock.collapsed {
+      z-index: 9;
+    }
+    .viewer3d.compact .dock-left {
+      justify-self: start;
+      border-right: 1px solid rgba(0, 0, 0, 0.14);
+    }
+    /* The seam is the left tab's right edge alone — both sides drawing it would
+       double the line where they meet. */
+    .viewer3d.compact .dock-right {
+      justify-self: end;
+      border-left: none;
+    }
+
+    /* The panel itself: full width, anchored to the top edge of its own tab, and
+       painted behind the tab row it slides out of (z-index below the parent's
+       own background). Closing collapses it to nothing rather than hiding it, so
+       the two directions animate alike. */
+    .viewer3d.compact .dock-body {
+      position: absolute;
+      bottom: 100%;
+      /* Full bleed from the tab's own edge. 200% is the tab's half of the map
+         doubled — exact whatever 100vw counts (scrollbar, visual viewport) —
+         and the vw term is the floor in case the map row is ever inset. The
+         overflow past the far edge is over the globe, which is the point. */
+      width: max(100vw, 200%);
+      height: var(--drawer-h);
+      z-index: -1;
+      background: #fff;
+      /* Edge to edge, so only the top edge is a border anyone can see. */
+      border: none;
+      border-top: 1px solid rgba(0, 0, 0, 0.14);
+    }
+    .viewer3d.compact .dock-left .dock-body {
+      left: 0;
+    }
+    .viewer3d.compact .dock-right .dock-body {
+      right: 0;
+    }
+    .viewer3d.compact .dock.collapsed .dock-body {
+      display: flex; /* beats the shared "collapsed hides the body" rule */
+      height: 0;
+      padding-top: 0;
+      padding-bottom: 0;
+      border-top-width: 0;
+    }
+    /* What's above the pilot list is header, and half a phone screen has none to
+       spare: the day gets one line, and the status note gets one — enough for
+       "Top 20 of 139 pilots", which is the part you can't get elsewhere. */
+    .viewer3d.compact .dock h1 {
+      font-size: 0.92rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .viewer3d.compact .status3d {
+      font-size: 0.75rem;
+      line-height: 1.3;
+      max-height: 1.3em;
+      overflow: hidden;
+      margin: 0.2rem 0 0.4rem;
+    }
+    /* The tab says what it is whether it's open or shut. Sideways made sense
+       down a rail; across a tab it doesn't. */
+    .viewer3d.compact .dock-rail-label {
+      display: block;
+      writing-mode: horizontal-tb;
+      margin: 0;
+      font-size: 0.82rem;
+    }
+    /* Which one you're in, without a second glance. */
+    .viewer3d.compact .dock:not(.collapsed) .dock-rail-label {
+      color: var(--text);
+      font-weight: 500;
+    }
+    /* Nothing to drag when the size is the screen's decision, and the handle
+       would eat swipes meant for the globe. */
+    .viewer3d.compact .dock-grip {
+      display: none;
+    }
+    /* The whole tab is the hit area (dock3d.ts); the chevron only has to say
+       which way it goes — a box around it would read as a second control. */
+    .viewer3d.compact .dock-toggle {
+      width: 2.2rem;
+      height: 2.2rem;
+      border: none;
+      border-radius: 0;
+      background: none;
+      /* .dock's 0.85rem would draw a chevron too small to read as the thing you
+         press, now that it has no box around it. */
+      font-size: 1.3rem;
+    }
+    .viewer3d.compact .dock-toggle:hover {
+      border-color: transparent;
+    }
+    .viewer3d.compact .dock-bar {
+      gap: 0.35rem;
+      padding: 0;
+      min-height: 0;
+    }
+    .viewer3d.compact .dock-body {
+      font-size: 0.9rem;
+      padding: 0.5rem 0.75rem 0.6rem;
+    }
+
+    /* Scrubber: the map is the point of the page, so the chart gives up height
+       (and the play row is allowed to wrap under it on the narrowest screens). */
+    .viewer3d-bottom {
+      padding: 0.3rem 0.6rem 0.45rem;
+    }
+    .viewer3d-bottom .time-slider {
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-top: 0.35rem;
+    }
+    /* Buys back most of the width the chart selector costs, so play · speed ·
+       selector · clock still make one row on a phone. */
+    .viewer3d-bottom .time-slider-speed {
+      width: 68px;
+    }
+    .viewer3d-bottom .chart-dock {
+      margin-top: 0.45rem;
+    }
+    .viewer3d-bottom .chart-dock-body {
+      height: clamp(96px, 24vh, 170px);
+    }
+    .viewer3d-bottom .alt-plot-title {
+      font-size: 0.75rem;
+      margin-bottom: 0.25rem;
+    }
+    .viewer3d-bottom .chart-toggle-btn {
+      font-size: 0.72rem;
+      padding: 0.2rem 0.5rem;
+    }
+    /* Taller grab area for a finger; the pill itself stays the same size. */
+    .viewer3d-bottom .chart-dock-grip {
+      height: 14px;
+      margin: 0;
+    }
   }
 </style>
