@@ -3,6 +3,7 @@
 // [day].json.ts from the stored task + IGC files) and renders it client-side.
 // One static route per manifest entry.
 import Base from '../../../layouts/Base.astro';
+import LoadingOverlay from '../../../components/LoadingOverlay.astro';
 import manifest from '../../../archive-manifest.json';
 
 interface Entry {
@@ -47,6 +48,11 @@ const heading = entry.title ?? `${entry.compLabel ?? entry.comp} — ${entry.day
 
     <div id="results" class="results"></div>
   </main>
+
+  {/* Same loading screen as the 3D viewer: the results JSON is megabytes, and
+      until it lands there is nothing on this page worth looking at either.
+      archive.ts advances the step line and takes it down. */}
+  <LoadingOverlay title={heading} step="Loading results…" />
 
   <script type="application/json" id="archive-entry" set:html={JSON.stringify(clientEntry)} />
   <script>

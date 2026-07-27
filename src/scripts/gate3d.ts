@@ -15,18 +15,18 @@
  * docs/decisions/0001-user-accounts.md.
  */
 import { getSupabase, hasStoredSession, isConfigured, readCachedSession } from '../lib/supabase';
+import { makeLoading, removeLoading } from './loading-overlay';
 
 /** Hand over to the real viewer. Dynamic so Cesium stays out of the gate's chunk. */
 const loadViewer = (): Promise<unknown> => import('./track3d');
 
 function setStep(message: string): void {
-  const el = document.getElementById('loading3d-step');
-  if (el) el.textContent = message;
+  makeLoading().step(message);
 }
 
 /** Swap the loading overlay for the sign-in panel, pointed back at this page. */
 function showGate(): void {
-  document.getElementById('loading3d')?.remove();
+  removeLoading();
   const link = document.getElementById('gate3d-signin') as HTMLAnchorElement | null;
   if (link) link.href = `/account?next=${encodeURIComponent(window.location.pathname)}`;
   document.getElementById('gate3d')?.removeAttribute('hidden');

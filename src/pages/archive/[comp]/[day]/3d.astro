@@ -4,6 +4,7 @@
 // Cesium globe with an animated, scrubbable timeline. One static route per
 // manifest entry, mirroring [day].astro.
 import Base from '../../../../layouts/Base.astro';
+import LoadingOverlay from '../../../../components/LoadingOverlay.astro';
 import manifest from '../../../../archive-manifest.json';
 
 interface Entry {
@@ -40,13 +41,7 @@ const clientEntry = { base, label: heading, utcOffsetMinutes: entry.utcOffsetMin
     <div id="cesiumContainer"></div>
 
     <!-- Full-screen loading overlay; track3d.ts advances the step text and fades it out. -->
-    <div id="loading3d" class="loading3d">
-      <div class="loading3d-box">
-        <div class="loading3d-spinner" aria-hidden="true"></div>
-        <div class="loading3d-title">{heading}</div>
-        <div id="loading3d-step" class="loading3d-step">Starting the 3D viewer…</div>
-      </div>
-    </div>
+    <LoadingOverlay title={heading} step="Starting the 3D viewer…" />
 
     <!-- Sign-in wall, revealed by gate3d.ts in place of the loading overlay when
          there's no session. The viewer script is never loaded in that case. -->
@@ -164,56 +159,8 @@ const clientEntry = { base, label: heading, utcOffsetMinutes: entry.utcOffsetMin
     height: 100%;
     min-height: 0;
   }
-  /* Full-screen loading overlay over the globe. */
-  .loading3d {
-    position: absolute;
-    inset: 0;
-    z-index: 20;
-    display: grid;
-    place-items: center;
-    background: var(--bg, #e7e7e7);
-    transition: opacity 0.55s ease;
-  }
-  .loading3d.hidden {
-    opacity: 0;
-    pointer-events: none;
-  }
-  .loading3d-box {
-    text-align: center;
-    padding: 1.5rem;
-    max-width: min(90vw, 30rem);
-  }
-  .loading3d-spinner {
-    width: 46px;
-    height: 46px;
-    margin: 0 auto 1.1rem;
-    border-radius: 50%;
-    border: 4px solid rgba(20, 12, 12, 0.15);
-    border-top-color: var(--accent);
-    animation: loading3d-spin 0.9s linear infinite;
-  }
-  .loading3d.error .loading3d-spinner {
-    display: none;
-  }
-  .loading3d-title {
-    font-size: 1.05rem;
-    font-weight: 500;
-    color: var(--text);
-    line-height: 1.3;
-  }
-  .loading3d-step {
-    margin-top: 0.4rem;
-    color: var(--muted);
-    font-variant-numeric: tabular-nums;
-  }
-  .loading3d.error .loading3d-step {
-    color: #c62828;
-  }
-  @keyframes loading3d-spin {
-    to {
-      transform: rotate(360deg);
-    }
-  }
+  /* The loading overlay itself is components/LoadingOverlay.astro, shared with
+     the 2D analysis page. */
 
   /* Sign-in wall. Same full-cover footprint as the loading overlay — .viewer3d
      is fixed inset:0, so this hides the top nav too and has to carry its own way

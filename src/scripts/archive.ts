@@ -5,6 +5,7 @@
  */
 import { renderArchivedResults, type ArchivedResults } from './analysis';
 import { installDayClaim } from './day-claim';
+import { makeLoading } from './loading-overlay';
 
 interface ArchiveEntry {
   base: string; // e.g. "/archive/chelan-us-open-2026/day1"
@@ -15,9 +16,13 @@ const $ = (id: string) => document.getElementById(id)!;
 async function load(): Promise<void> {
   const statusEl = $('status');
   const results = $('results');
+  // Full-cover loading screen, shared with the 3D viewer. It's in the served
+  // HTML, so it's already up: this only drives it.
+  const loading = makeLoading();
 
   const dataEl = document.getElementById('archive-entry');
   if (!dataEl?.textContent) {
+    loading.done();
     statusEl.textContent = 'No archived analysis found.';
     return;
   }
@@ -26,33 +31,26 @@ async function load(): Promise<void> {
   // Before the render below, so the first pinned pilot already has the control.
   installDayClaim();
 
-  // Progress bar shown while the results JSON downloads.
-  const progress = document.createElement('div');
-  progress.className = 'progress';
-  const barEl = document.createElement('div');
-  barEl.className = 'progress-bar';
-  progress.appendChild(barEl);
-  statusEl.insertAdjacentElement('afterend', progress);
-
   try {
-    statusEl.textContent = 'Loading results…';
     const data = await fetchJsonWithProgress(`${entry.base}.json`, (received, total) => {
       const mb = (n: number): string => (n / 1048576).toFixed(1);
-      if (total > 0 && received <= total) {
-        barEl.classList.remove('indeterminate');
-        barEl.style.width = `${(received / total) * 100}%`;
-        statusEl.textContent = `Loading results… ${mb(received)} / ${mb(total)} MB`;
-      } else {
-        // No (or mismatched, e.g. gzipped) Content-Length: show activity + bytes.
-        barEl.classList.add('indeterminate');
-        statusEl.textContent = `Loading results… ${mb(received)} MB`;
-      }
+      // No (or mismatched, e.g. gzipped) Content-Length: bytes so far is all we
+      // can honestly say.
+      loading.step(
+        total > 0 && received <= total
+          ? `Loading results… ${mb(received)} / ${mb(total)} MB`
+          : `Loading results… ${mb(received)} MB`,
+      );
     });
-    progress.remove();
+    loading.step('Rendering…');
     renderArchivedResults({ results: data, resultsEl: results, statusEl, threeDUrl: `${entry.base}/3d` });
+    loading.done();
   } catch (err) {
     console.error(err);
-    progress.remove();
+    // Unlike the 3D viewer, there's a usable page behind this overlay — nav,
+    // the day's notes, the way back to the archive — so the error goes in the
+    // status line and the overlay gets out of the way.
+    loading.done();
     statusEl.textContent = `Error loading archive: ${(err as Error).message}`;
   }
 }

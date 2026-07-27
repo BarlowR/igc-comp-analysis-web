@@ -26,6 +26,7 @@ import {
 } from './analysis';
 import { mountAnnotations, type AnnotationLayer } from './annotations3d';
 import { mountDocks } from './dock3d';
+import { makeLoading } from './loading-overlay';
 import type { MapTurnpoint, MapTrack } from '../lib/competition';
 import { haversine } from '../lib/math';
 
@@ -872,27 +873,6 @@ async function enableTerrain(viewer: Cesium.Viewer, statusEl: HTMLElement, onTer
 }
 
 // ---- helpers --------------------------------------------------------------
-
-/** Controls the full-screen loading overlay: advance its step, dismiss it, or
- * park it on an error message. */
-function makeLoading(): { step: (m: string) => void; done: () => void; fail: (m: string) => void } {
-  const el = document.getElementById('loading3d');
-  const stepEl = document.getElementById('loading3d-step');
-  const setStep = (m: string): void => {
-    if (stepEl) stepEl.textContent = m;
-  };
-  return {
-    step: setStep,
-    done() {
-      el?.classList.add('hidden');
-      window.setTimeout(() => el?.remove(), 700);
-    },
-    fail(m: string) {
-      el?.classList.add('error');
-      setStep(m);
-    },
-  };
-}
 
 function ensureWidgetsCss(): void {
   if (document.querySelector('link[data-cesium-widgets]')) return;
