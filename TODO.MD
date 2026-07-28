@@ -131,6 +131,31 @@
         project shouldn't break "your flights".
   
   - [x] Fix mobile view
+        Below 700 px the docks stop being columns (dock3d.ts adds .compact) and
+        become drawers up from the bottom of the map: two half-width tabs that
+        never move, with the panel growing out from behind the tab row, full
+        bleed so no strip of globe shows down either side. The whole tab is the
+        hit area in both directions — the chevron only says which way it goes.
+        The map row is the one place they can live: the scrubber below it must
+        never be covered. The phone header (.viewer3d-top) carries the back link
+        and the account chip the dock bars hide there, and it isn't gated on
+        .compact — the way out of the viewer shouldn't wait on a script. Also
+        here: the chart dock's stored height is capped at 40vh on a phone (the
+        store is shared with wider screens, where a comfortable chart buries a
+        phone's map), and the Time Lost plot is now the 3D view's alone
+        (mountTimeline takes {timeLost}), which buys the 2D page the width the
+        chart selector was costing.
+
+  - [x] One loading screen for both viewers — the spinner, day title and step
+        line the 3D view had is now components/LoadingOverlay.astro driven by
+        scripts/loading-overlay.ts, and the archived day page uses it too: it
+        spends the same seconds fetching the same multi-MB results JSON, and had
+        only a status line and a progress bar to show for them. The MB counts
+        moved onto the step line, so nothing was lost with the bar. The two
+        pages part company on failure: the 3D view parks the overlay on the
+        error message, having nothing behind it, while the day page dismisses it
+        and puts the error in the status line, where the nav and the way back to
+        the archive are still reachable.
 
   - [ ] 3b. Share a day's notes by link. Wanted, deliberately not built yet, and
         nothing speculative was added to the schema for it: a share is a

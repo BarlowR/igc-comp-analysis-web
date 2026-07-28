@@ -181,10 +181,15 @@ export class IgcFlight {
     }
     this.lastHour = hour;
 
-    const t = new Date(
-      this.day.getFullYear(),
-      this.day.getMonth(),
-      this.day.getDate(),
+    // A B-record's clock is UTC, so the fix time is a true UTC instant. Building
+    // it with the local Date constructor instead would bake the parsing
+    // machine's offset into every timestamp — invisible while one machine both
+    // builds and reads the archive, seven hours wrong the moment a CI box in UTC
+    // builds what a pilot in California reads.
+    const t = Date.UTC(
+      this.day.getUTCFullYear(),
+      this.day.getUTCMonth(),
+      this.day.getUTCDate(),
       hour,
       minute,
       sec,
@@ -202,7 +207,7 @@ export class IgcFlight {
     let lon = lonDeg + lonMin / 60;
     lon *= east ? 1 : -1;
 
-    this.fixes.timeMs.push(t.getTime());
+    this.fixes.timeMs.push(t);
     this.fixes.lat.push(lat);
     this.fixes.lon.push(lon);
     this.fixes.validity.push(line[24]);
@@ -404,14 +409,8 @@ export class IgcFlight {
     // cross UTC midnight, `this.day` has been advanced during fix parsing, which
     // would push the gate a day past the whole flight and empty the window.
     const day = this.firstDay ?? this.day;
-    return new Date(
-      day.getFullYear(),
-      day.getMonth(),
-      day.getDate(),
-      h,
-      m,
-      s,
-    ).getTime();
+    // The gate string is UTC ("19:30:00Z"), like the fixes it gets compared to.
+    return Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate(), h, m, s);
   }
 
   /** Walk the turnpoint cylinders to label each fix with the next waypoint. */
@@ -629,7 +628,9 @@ function parseIgcDate(ddmmyy: string): Date {
   const dd = parseInt(ddmmyy.slice(0, 2), 10);
   const mm = parseInt(ddmmyy.slice(2, 4), 10);
   const yy = parseInt(ddmmyy.slice(4, 6), 10);
-  return new Date(2000 + yy, mm - 1, dd);
+  // UTC midnight: an IGC date is a UTC date, and the machine that reads this
+  // file is not necessarily in the same zone as the one that built the archive.
+  return new Date(Date.UTC(2000 + yy, mm - 1, dd));
 }
 
 function count(arr: number[], pred: (v: number) => boolean): number {

@@ -43,6 +43,12 @@ async function load(): Promise<void> {
       );
     });
     loading.step('Rendering…');
+    // The render below is synchronous and takes a noticeable moment on a big
+    // day, so let the step line paint first — otherwise the overlay spends that
+    // moment still claiming to be downloading. (The 3D viewer gets this for
+    // free: it waits on Cesium's first postRender.) One frame to apply the
+    // text, a second to be past its paint.
+    await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
     renderArchivedResults({ results: data, resultsEl: results, statusEl, threeDUrl: `${entry.base}/3d` });
     loading.done();
   } catch (err) {

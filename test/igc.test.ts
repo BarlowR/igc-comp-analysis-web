@@ -64,10 +64,20 @@ test('parse: S/W hemispheres flip the sign', () => {
 
 test('parse: header date and pilot name', () => {
   const f = new IgcFlight(igc([bRec({ s: 0 }), bRec({ s: 10 })], { date: '070726', pilot: 'Jane Roe' }));
-  assert.equal(f.day.getFullYear(), 2026);
-  assert.equal(f.day.getMonth(), 6); // July (0-based)
-  assert.equal(f.day.getDate(), 7);
+  // UTC accessors: the header date is a UTC date, and f.day is UTC midnight.
+  assert.equal(f.day.getUTCFullYear(), 2026);
+  assert.equal(f.day.getUTCMonth(), 6); // July (0-based)
+  assert.equal(f.day.getUTCDate(), 7);
   assert.equal(f.pilotName, 'Jane Roe');
+});
+
+test('parse: fix times are true UTC instants, not the parsing machine local time', () => {
+  // The archive's day JSON is built on one machine and read on another, and the
+  // clock is rendered from these numbers (formatClock + the day's UTC offset).
+  // Anything derived from the local Date constructor would make the expected
+  // value here depend on process.env.TZ.
+  const f = new IgcFlight(igc([bRec({ h: 19, m: 30, s: 0 }), bRec({ h: 19, m: 30, s: 10 })]));
+  assert.equal(f.fixes.timeMs[0], Date.UTC(2026, 6, 7, 19, 30, 10));
 });
 
 test('parse: non-advancing (duplicate-time) fixes are dropped', () => {

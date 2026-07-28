@@ -845,13 +845,15 @@ function pointsUpTo(tr: MapTrack, t: number): [number, number][] {
 }
 
 /**
- * Epoch ms -> "HH:MM:SS" in task-local time. Fix times were built from the
- * IGC's UTC clock (so getHours() reads back UTC); `offsetMin` shifts that to the
- * competition's local time. Null offset displays UTC.
+ * Epoch ms -> "HH:MM:SS" in task-local time. Fix times are true UTC instants
+ * (see igc.ts), so the clock is read with the UTC accessors and shifted by
+ * `offsetMin` — the comp's offset for that date, carried in the manifest by
+ * whichever crawler imported the day. Neither the machine that built the
+ * archive nor the one reading it gets a say. Null offset displays UTC.
  */
 export function formatClock(ms: number, offsetMin: number | null): string {
   const d = new Date(ms);
-  const utcSecs = d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds();
+  const utcSecs = d.getUTCHours() * 3600 + d.getUTCMinutes() * 60 + d.getUTCSeconds();
   const secs = (((utcSecs + (offsetMin ?? 0) * 60) % 86400) + 86400) % 86400;
   const p = (n: number): string => String(n).padStart(2, '0');
   return `${p(Math.floor(secs / 3600))}:${p(Math.floor((secs % 3600) / 60))}:${p(secs % 60)}`;

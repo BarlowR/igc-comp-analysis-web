@@ -72,7 +72,17 @@ const NEXT_KEY = 'igc-signin-next';
 const NEXT_TTL_MS = 60 * 60 * 1000;
 
 function safePath(path: string | null | undefined): string | null {
-  return path && path.startsWith('/') && !path.startsWith('//') ? path : null;
+  if (!path) return null;
+  // Resolve it the way the browser will before deciding. A string test isn't
+  // enough: "/\evil.com" starts with a single slash but the URL parser reads the
+  // backslash as a slash, so location.replace() would leave the site entirely.
+  try {
+    const url = new URL(path, window.location.origin);
+    if (url.origin !== window.location.origin) return null;
+    return `${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    return null;
+  }
 }
 
 /** This page's ?next=, captured before cleanUrl() strips the query. */

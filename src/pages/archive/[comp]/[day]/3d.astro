@@ -730,9 +730,6 @@ const clientEntry = { base, label: heading, utcOffsetMinutes: entry.utcOffsetMin
          a label for that, not the only way in. */
       cursor: pointer;
     }
-    .viewer3d.compact .dock-body {
-      cursor: auto;
-    }
     /* A shut tab sits above the open one's panel, so the way across is never
        buried — the two together always read as one bar. */
     .viewer3d.compact .dock.collapsed {
@@ -764,6 +761,8 @@ const clientEntry = { base, label: heading, utcOffsetMinutes: entry.utcOffsetMin
       height: var(--drawer-h);
       z-index: -1;
       background: #fff;
+      /* The tab is a control and says so; the drawer it opened is not. */
+      cursor: auto;
       /* Edge to edge, so only the top edge is a border anyone can see. */
       border: none;
       border-top: 1px solid rgba(0, 0, 0, 0.14);
