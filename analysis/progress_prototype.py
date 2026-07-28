@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """
 "Time lost vs par" race chart from an archived competition task — the prototype
-mirror of the app pipeline (src/lib/timetogo.ts + competition.ts), plus the
-final-glide regime shift we're validating before deploying it.
+mirror of the app pipeline (src/lib/timetogo.ts + competition.ts).
 
 Per pilot, per fix:
 
@@ -12,29 +11,30 @@ Per pilot, per fix:
            nearest the line between neighbours, or inside if the line crosses it
            — so it's continuous across cylinder tags, no step at big cylinders).
 
-  τ      = max( D_rem/V_cc − credit/M ,  D_rem/V_glide )           [seconds]
-           GLIDE-SLOPE HEIGHT CAP: height is credited at 1/M only up to the amount
-           needed to glide to goal (h_need = h_fin + D_rem·g, g = 1/glide-ratio);
-           surplus above the slope is discounted by beta (default 0 = worthless).
-           Below the slope this is the plain MacCready term (unchanged). Nearer the
-           slope the credit would drive τ toward D_rem/V_g with the MacCready-inverted
-           V_g = V_cc·M/(M − g·V_cc) — which diverges at paraglider glide ratios — so τ
-           is FLOORED at the physical pure-glide time D_rem/V_glide (V_glide =
-           --glide-speed, default 60 km/h). Surplus altitude stops counting and τ can't
-           dive below the glide time. At ESS (D_rem→0) both terms →0, so arrival height
-           no longer leaks in and same-time finishers land together.
+  τ      = pace · ( D_rem/V_g  +  max(0, D_rem/g − (h − h_fin)) / M )   [seconds]
+           TWO-PHASE MODEL: glide time for the whole course plus climb time for
+           the height still owed, under the idealisation "no distance while
+           climbing, no climbing on glide". The single max() is the physics —
+           height owed can't be negative — and doubles as the final-glide cap:
+           above the slope surplus height is worth nothing. At ESS (D_rem→0)
+           τ→0, so arrival height doesn't leak in.
 
   L(t)   = τ/60 + t/60 − τ_ref                                     [minutes]
            cumulative time lost vs a par ghost. Flat = par, up = losing, down =
            gaining; the finish square is the pilot's final deficit.
 
-Par is measured from the day's fastest PAR_N finishers:
-  M     = median achieved climb          V_cc = optimised task dist ÷ median completion
-  τ_ref = median over the par group of [completion − finish-altitude residue],
-          i.e. the median of their L=0 points, so the leaders sit on L = 0.
-  V_glide = physical final-glide ground-speed cap (--glide-speed, default 60 km/h);
-          floors τ so on-slope credit can't imply a superhuman glide.
-  h_fin = min crossing altitude (cancels in L; kept for the raw τ).
+Par is measured from the day's fastest PAR_N finishers (no hand-set constants):
+  M     = median achieved climb rate
+  V_g,g = ground speed and glide ratio over their gliding fixes (smoothed sink
+          < −0.3 m/s inside the scored window); g ≡ V_g/sink, so par gliding is
+          exactly neutral. Falls back to 60 km/h / 7:1 under 600 s of sample.
+  pace  = actual median gate→ESS duration ÷ raw model τ at (task dist, h_ref).
+          The two-phase model omits thermal drift and porpoising, so its raw
+          ghost runs slow; this one measured ratio pins the ghost's total to the
+          real par duration, which is what makes the par line horizontal and the
+          final L a literal "minutes behind the median winner".
+  τ_ref = pace-fitted τ at the reference start state ≡ that median duration.
+  h_fin = min crossing altitude across all finishers.
 
 Reads dist/archive/<comp>/<day>.json. Computation is stdlib-only; plotting needs
 matplotlib (no numpy).
@@ -65,6 +65,13 @@ R_EARTH = 6_371_000.0
 PAR_N = 10  # par is measured from the fastest N finishers
 TAG_MARGIN_M = 200  # a cylinder counts as reached within radius + this (downsampled
 # tracks can graze a turnpoint edge a few metres outside despite the path going in)
+
+# Glide measurement (mirrors competition.ts): classification threshold, minimum
+# sample, and the fallbacks for a day too sparse to measure.
+GLIDE_SINK_THRESHOLD_MPS = 0.3
+MIN_GLIDE_SAMPLE_S = 600
+DEFAULT_GLIDE_SPEED_KMH = 60.0
+DEFAULT_GLIDE_RATIO = 7.0
 
 
 def to_planar(lat: float, lon: float, lat0: float, lon0: float) -> tuple[float, float]:
@@ -313,16 +320,8 @@ def main():
     ap.add_argument("--outdir", default="analysis_out")
     ap.add_argument("--topn", type=int, default=3, help="how many leaders to highlight")
     ap.add_argument("--smooth", type=float, default=7.0, help="altitude smoothing window (s)")
-    ap.add_argument("--glide", type=float, default=7.0, help="final-glide ratio (e.g. 7.0 = 7:1); gradient g = 1/ratio")
-    ap.add_argument("--glide-speed", type=float, default=60.0, help="physical final-glide ground-speed cap (km/h); floors tau at D_rem/this")
-    ap.add_argument("--beta", type=float, default=0.0, help="surplus-height discount above glide slope [0,1]")
     args = ap.parse_args()
     os.makedirs(args.outdir, exist_ok=True)
-    g = 1.0 / args.glide
-    V_glide = args.glide_speed / 3.6  # m/s
-    beta = max(0.0, min(1.0, args.beta))
-    if args.beta > 0.3:
-        print(f"warning: beta={args.beta} > 0.3 is not meaningful (clamped to [0,1])")
 
     task, tracks = load(args.day)
     task_m = task_distance_m(task)
@@ -333,45 +332,75 @@ def main():
 
     M = statistics.median([t.climb for t in par if t.climb]) or 2.0
     med_comp = statistics.median([t.completion_s for t in par if t.completion_s])
-    Vcc = task_m / med_comp if med_comp else 0.0
+    Vcc = task_m / med_comp if med_comp else 0.0  # day stat only; τ derives its own pace
     finish_alts = [t.finish_msl for t in finishers if t.finish_msl is not None]
     h_fin = min(finish_alts) if finish_alts else 0.0
-    tau_ref = statistics.median(
-        [t.completion_s / 60 - (t.finish_msl - h_fin) / M / 60 for t in par if t.completion_s and t.finish_msl is not None]
-    )
-    # MacCready-inverted glide speed the credit WOULD imply on the slope. Physical for
-    # sailplanes; for paraglider glide ratios (g≈1/7) the denominator collapses so it
-    # runs to 60-180 km/h or diverges — hence the V_glide floor caps the actual credit.
-    Vg_mc = Vcc * M / (M - g * Vcc) if M - g * Vcc > 0 else float("inf")
-    print(f"task {task_m/1000:.1f} km | M {M:.2f} m/s | V_cc {Vcc*3.6:.1f} km/h | glide {args.glide:.1f}:1 "
-          f"(V_g,mc {Vg_mc*3.6:.0f} km/h capped at {args.glide_speed:.0f}) | beta {beta:.2f} "
-          f"| h_fin {h_fin:.0f} | tau_ref {tau_ref:.1f} min | par=top{PAR_N}")
+
+    # Per-finisher D_rem + smoothed height (rem is the expensive part; reused by
+    # the glide measurement and by L below).
+    per = {tr.pilot: (remaining_series(task, tr.x, tr.y), smooth_alt(tr.t, tr.alt, args.smooth))
+           for tr in finishers}
+
+    # Ghost anchor h_ref: fleet-median smoothed altitude at the SSS exit (all
+    # tracks, like the app's buildMapData).
+    exit_alts = []
+    for tr in tracks:
+        sa = tr.start_after_s if tr.start_after_s is not None else 0.0
+        h = per[tr.pilot][1] if tr.pilot in per else smooth_alt(tr.t, tr.alt, args.smooth)
+        i = 0
+        while i < len(tr.t) and tr.t[i] < sa:
+            i += 1
+        if i < len(h):
+            exit_alts.append(h[i])
+    h_ref = statistics.median(exit_alts) if exit_alts else h_fin
+
+    # Par glide pace, measured like M: over the par pilots' scored fixes, a fix
+    # sinking faster than the threshold is gliding; V_g = course progress per
+    # second of that, g = course metres per metre of height spent (≡ V_g/sink).
+    glide_course = glide_drop = glide_time = 0.0
+    for tr in par:
+        rem, h = per[tr.pilot]
+        sa = tr.start_after_s if tr.start_after_s is not None else 0.0
+        end = tr.completion_s if tr.completion_s else float("inf")
+        for i in range(1, len(tr.t)):
+            if tr.t[i] < sa or tr.t[i] > end:
+                continue
+            dt = tr.t[i] - tr.t[i - 1]
+            if dt <= 0 or dt > 30:
+                continue  # track gap — rates across it mean nothing
+            dh = h[i] - h[i - 1]
+            if dh / dt >= -GLIDE_SINK_THRESHOLD_MPS:
+                continue
+            glide_course += rem[i - 1] - rem[i]
+            glide_drop += -dh
+            glide_time += dt
+    measured = glide_time >= MIN_GLIDE_SAMPLE_S and glide_course > 0 and glide_drop > 0
+    V_g = glide_course / glide_time if measured else DEFAULT_GLIDE_SPEED_KMH / 3.6
+    g_ratio = glide_course / glide_drop if measured else DEFAULT_GLIDE_RATIO
+
+    # Two-phase τ (minutes, raw): glide the course + climb the height still owed.
+    def tau_raw(d, h):
+        return (d / V_g + max(0.0, d / g_ratio - (h - h_fin)) / M) / 60
+
+    # Pace fit: pin the ghost's start-state time to the actual median par
+    # duration (the model omits drift + porpoising, so raw runs slow).
+    tau_ref_raw = tau_raw(task_m, h_ref)
+    pace = (med_comp / 60) / tau_ref_raw if tau_ref_raw > 0 and med_comp else 1.0
+    tau_ref = tau_ref_raw * pace  # ≡ med_comp/60
+
+    print(f"task {task_m/1000:.1f} km | M {M:.2f} m/s | glide {V_g*3.6:.1f} km/h at {g_ratio:.2f}:1"
+          f"{' (measured)' if measured else ' (FALLBACK)'} | pace x{pace:.2f} | V_cc {Vcc*3.6:.1f} km/h "
+          f"| h_fin {h_fin:.0f} | h_ref {h_ref:.0f} | tau_ref {tau_ref:.1f} min | par=top{PAR_N}")
     top = finishers[: args.topn]
     top_names = {t.pilot for t in top}
     print("top: " + ", ".join(f"{t.pilot} ({t.completion_s:.0f}s)" for t in top))
 
-    # Glide-slope height cap on the MacCready height credit, floored at a physical glide.
-    #   Below slope (h <= h_need): credit = h - h_fin, so τ = D_rem/V_cc - (h-h_fin)/M,
-    #     identical to plain MacCready — mid-race traces are bit-for-bit unchanged (the
-    #     floor never binds here since V_glide > V_cc).
-    #   Approaching/above slope, beta = 0: credit -> D_rem*g would collapse τ to
-    #     D_rem/V_g with the MacCready-inverted V_g = V_cc*M/(M - g*V_cc). For paraglider
-    #     glide ratios that V_g is 60-180 km/h or diverges, so we FLOOR τ at the physical
-    #     pure-glide time D_rem/V_glide (V_glide = --glide-speed, default 60 km/h). Surplus
-    #     height is worth nothing; climbing after glide is made shows on L as ~1 min/min lost.
-    #   h_need shrinks with D_rem, so deviating off-line drops you back below the slope
-    #     and full credit is automatically restored.
     def L_of(tr):
-        rem = remaining_series(task, tr.x, tr.y)
-        h = smooth_alt(tr.t, tr.alt, args.smooth)
+        rem, h = per[tr.pilot]
         L, fg = [], []
         for i in range(len(rem)):
-            h_need = h_fin + rem[i] * g
-            credit = (min(h[i], h_need) - h_fin) + beta * max(h[i] - h_need, 0.0)
-            tau_credit = (rem[i] / Vcc - credit / M) / 60  # minutes
-            tau = max(tau_credit, rem[i] / V_glide / 60)  # floor at physical glide time
-            L.append(tau + tr.t[i] / 60 - tau_ref)
-            fg.append(h[i] > h_need)  # above the glide slope = in the final-glide region
+            L.append(pace * tau_raw(rem[i], h[i]) + tr.t[i] / 60 - tau_ref)
+            fg.append(h[i] > h_fin + rem[i] / g_ratio)  # above the slope = final glide
         return L, fg
 
     series = {tr.pilot: L_of(tr) for tr in finishers}  # pilot -> (L, in_final_glide)
@@ -411,7 +440,7 @@ def main():
     # square lands on it — vertical gap from par = minutes lost.
     xmax = ax.get_xlim()[1]
     ax.plot([tau_ref, xmax], [0.0, xmax - tau_ref], color="k", ls=":", lw=1, alpha=0.5, label="time lost (1 min/min)")
-    ax.set_title("Time lost vs par  L(t) = τ + elapsed − τ_ref   (flat = par, up = losing time; glide-slope height cap on τ)")
+    ax.set_title("Time lost vs par  L(t) = τ + elapsed − τ_ref   (flat = par, up = losing time; two-phase τ, pace-fitted)")
     ax.set_xlabel("elapsed since start gate (min)")
     ax.set_ylabel("cumulative time lost vs par (min)")
     ax.legend(loc="upper left", fontsize=8)

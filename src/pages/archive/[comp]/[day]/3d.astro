@@ -702,7 +702,7 @@ const clientEntry = { base, label: heading, utcOffsetMinutes: entry.utcOffsetMin
     .viewer3d-top .dock-account {
       margin-left: auto;
     }
-    /* Now that the header carries them, the copies in the dock bars are noise. */
+    /* The header carries these on phones, so the dock-bar copies are noise. */
     .viewer3d.compact .dock-bar .backlink,
     .viewer3d.compact .dock-bar .dock-account {
       display: none;
@@ -822,8 +822,8 @@ const clientEntry = { base, label: heading, utcOffsetMinutes: entry.utcOffsetMin
       border: none;
       border-radius: 0;
       background: none;
-      /* .dock's 0.85rem would draw a chevron too small to read as the thing you
-         press, now that it has no box around it. */
+      /* With no box around it, .dock's 0.85rem would draw a chevron too small
+         to read as the thing you press. */
       font-size: 1.3rem;
     }
     .viewer3d.compact .dock-toggle:hover {

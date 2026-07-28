@@ -255,28 +255,52 @@ test('smoothAlt: centred average smooths a spike, preserves a flat line', () => 
 });
 
 // ---- tauSeries ------------------------------------------------------------
-test('tauSeries: below the glide slope equals plain MacCready', () => {
-  const p = { vccMps: 10, climbMps: 2.5, hFinM: 0, glideRatio: 7, beta: 0 };
-  const dRem = [20000];
-  const h = [500]; // hNeed = 20000/7 = 2857 > 500 → below slope
-  const [tau] = tauSeries(dRem, h, p);
-  const plain = (20000 / 10 - (500 - 0) / 2.5) / 60;
-  assert.ok(close(tau, plain, 1e-9), `${tau} vs ${plain}`);
+// τ = d/Vg + max(0, d/g − (h − hFin))/M, minutes. Day-2-of-chelan2026-shaped
+// params: measured par glide 15.38 m/s at ratio 7.77, par climb 2.52 m/s.
+const TAU_P = { glideMps: 15.38, glideRatio: 7.77, climbMps: 2.52, hFinM: 510 };
+
+test('tauSeries: below the slope, glide time plus climb time for the height owed', () => {
+  const d = 20_000;
+  const h = 1_000; // owes 20000/7.77 − 490 ≈ 2084 m of climbing
+  const [tau] = tauSeries([d], [h], TAU_P);
+  const glide = d / TAU_P.glideMps / 60;
+  const climb = (d / TAU_P.glideRatio - (h - TAU_P.hFinM)) / TAU_P.climbMps / 60;
+  assert.ok(close(tau, glide + climb, 1e-9), `${tau} vs ${glide + climb}`);
 });
 
-test('tauSeries: floored at physical glide time, never implies superhuman glide', () => {
-  // paraglider-ish: on the slope with lots of height, floor at D_rem/vGlide binds
-  const p = { vccMps: 9, climbMps: 2, hFinM: 0, glideRatio: 7, beta: 0, glideSpeedKmh: 60 };
-  const dRem = [20000];
-  const h = [20000 / 7 + 3000]; // well above the slope
-  const [tau] = tauSeries(dRem, h, p);
-  const floor = 20000 / (60 / 3.6) / 60;
-  assert.ok(tau >= floor - 1e-9, `tau ${tau} below floor ${floor}`);
+test('tauSeries: climbing pays at exactly 1/M below the slope', () => {
+  // Pinned at a real state (46.4 km out at 2544 m MSL, chelan2026 day 2): a
+  // climb must ALWAYS reduce time-to-go. A glide-time bound spanning the whole
+  // remaining distance would bind here and freeze τ against altitude, reading a
+  // strong climb as a minute lost per minute.
+  const d = 46_400;
+  const [tau] = tauSeries([d], [2544], TAU_P);
+  const [higher] = tauSeries([d], [2644], TAU_P);
+  assert.ok(close(tau - higher, 100 / TAU_P.climbMps / 60, 1e-9), `climb credit ${tau - higher}`);
+});
+
+test('tauSeries: above the slope, pure glide time; surplus height is worth nothing', () => {
+  const d = 20_000;
+  const hSlope = TAU_P.hFinM + d / TAU_P.glideRatio;
+  const [onGlide] = tauSeries([d], [hSlope + 100], TAU_P);
+  const [muchHigher] = tauSeries([d], [hSlope + 3000], TAU_P);
+  assert.ok(close(onGlide, d / TAU_P.glideMps / 60, 1e-9), `${onGlide} vs pure glide`);
+  assert.ok(close(onGlide, muchHigher, 1e-9), `surplus credited: ${onGlide} vs ${muchHigher}`);
+});
+
+test('tauSeries: continuous at the glide slope', () => {
+  const d = 19_200;
+  const hSlope = TAU_P.hFinM + d / TAU_P.glideRatio;
+  // The climb term slopes at 1/M below and 0 above, so over ±eps the two sides
+  // genuinely differ by eps/M/60; anything beyond 2× that would be a real step.
+  const eps = 1e-3;
+  const below = tauSeries([d], [hSlope - eps], TAU_P)[0];
+  const above = tauSeries([d], [hSlope + eps], TAU_P)[0];
+  assert.ok(Math.abs(below - above) < (2 * eps) / TAU_P.climbMps / 60, `step at the slope: ${below} vs ${above}`);
 });
 
 test('tauSeries: zero at ESS (dRem=0)', () => {
-  const p = { vccMps: 9, climbMps: 2, hFinM: 100, glideRatio: 7, beta: 0 };
-  const [tau] = tauSeries([0], [250], p);
+  const [tau] = tauSeries([0], [TAU_P.hFinM + 150], TAU_P);
   assert.ok(close(tau, 0, 1e-9), `expected 0 at ESS, got ${tau}`);
 });
 
@@ -465,30 +489,23 @@ test('smoothAlt: uneven sample spacing respects the time window, not index count
   assert.ok(close(s[3], 100), `s3=${s[3]}`); // isolated → itself
 });
 
-// ---- tauSeries: continuity, beta, monotonicity ----------------------------
-test('tauSeries: continuous across the glide-slope boundary h = hNeed', () => {
-  const p = { vccMps: 12, climbMps: 3, hFinM: 0, glideRatio: 8, beta: 0, glideSpeedKmh: 200 };
-  const d = 12000;
-  const hNeed = d / 8; // 1500
-  const eps = 1e-3; // the two branches meet at hNeed; over ±eps the slope moves τ by
-  const below = tauSeries([d], [hNeed - eps], p)[0]; // only ~eps/M/60 ≈ 6e-6 min, so a
-  const above = tauSeries([d], [hNeed + eps], p)[0]; // >1e-4 gap would be a real jump.
-  assert.ok(Math.abs(below - above) < 1e-4, `jump at slope: ${below} vs ${above}`);
-});
-
-test('tauSeries: beta credits surplus height above the slope', () => {
-  const base = { vccMps: 12, climbMps: 3, hFinM: 0, glideRatio: 8, glideSpeedKmh: 500 };
-  const d = 12000;
-  const h = d / 8 + 2000; // 2000 m above the slope
-  const noBeta = tauSeries([d], [h], { ...base, beta: 0 })[0];
-  const withBeta = tauSeries([d], [h], { ...base, beta: 0.1 })[0];
-  assert.ok(withBeta < noBeta, `beta should lower tau: ${withBeta} !< ${noBeta}`);
-});
-
+// ---- tauSeries: monotonicity ----------------------------------------------
 test('tauSeries: increases with distance remaining', () => {
-  const p = { vccMps: 10, climbMps: 2.5, hFinM: 0, glideRatio: 7, beta: 0 };
-  const taus = tauSeries([5000, 10000, 20000], [200, 200, 200], p);
+  const taus = tauSeries([5000, 10000, 20000], [700, 700, 700], TAU_P);
   assert.ok(taus[0] < taus[1] && taus[1] < taus[2], `not monotonic: ${taus}`);
+});
+
+test('tauSeries: never increases with height', () => {
+  // The one-clamp form is monotone by construction. Any bound that grows with
+  // height (e.g. a glide-time floor over the height-glidable distance) breaks
+  // this in a band below the slope, reading climbs as losses.
+  const d = 15_000;
+  let prev = Infinity;
+  for (let h = 0; h <= 4000; h += 50) {
+    const [tau] = tauSeries([d], [h], TAU_P);
+    assert.ok(tau <= prev + 1e-12, `tau rose with height at h=${h}: ${tau} > ${prev}`);
+    prev = tau;
+  }
 });
 
 // ---- lostSeries: gate offset ---------------------------------------------
@@ -513,7 +530,8 @@ function rng(seed: number): () => number {
   };
 }
 
-/** The OLD closest-to-line touch, kept as a reference to prove the new one never loses. */
+/** Airscore `find_closest`'s closest-to-line touch — the reference heuristic the
+ * true minimiser must never lose to. */
 function heuristicTouch(cx: number, cy: number, r: number, ax: number, ay: number, bx: number, by: number): [number, number] {
   const [qx, qy] = nearestOnSegment(cx, cy, ax, ay, bx, by);
   if (hypot(qx - cx, qy - cy) <= r) return [qx, qy];
@@ -533,11 +551,11 @@ test('waypointThroughCylinder: fuzz — on the geometry and never worse than clo
     const [tx, ty] = waypointThroughCylinder(cx, cy, r, ax, ay, bx, by);
     // touch is on or inside the disk (free case lands on the segment inside it)
     assert.ok(hypot(tx - cx, ty - cy) <= r + 1e-4, `touch outside disk at n=${n}`);
-    // and it is no longer than the old closest-to-line route (true minimiser)
+    // and, being the true minimiser, never longer than the closest-to-line route
     const [hx, hy] = heuristicTouch(cx, cy, r, ax, ay, bx, by);
     const mine = hypot(ax - tx, ay - ty) + hypot(tx - bx, ty - by);
-    const old = hypot(ax - hx, ay - hy) + hypot(hx - bx, hy - by);
-    assert.ok(mine <= old + 1e-3, `worse than heuristic at n=${n}: ${mine} > ${old}`);
+    const ref = hypot(ax - hx, ay - hy) + hypot(hx - bx, hy - by);
+    assert.ok(mine <= ref + 1e-3, `worse than heuristic at n=${n}: ${mine} > ${ref}`);
   }
 });
 
@@ -655,26 +673,9 @@ test('buildGeom: deterministic and converged (rebuild identical, extra passes st
   assert.ok(Math.abs(refined - a.distToGoal[0]) < a.distToGoal[0] * 0.02, `not converged: ${refined} vs ${a.distToGoal[0]}`);
 });
 
-// ---- tauSeries: clamping, defaults, shape --------------------------------
-test('tauSeries: beta is clamped to [0,1]', () => {
-  const base = { vccMps: 11, climbMps: 3, hFinM: 0, glideRatio: 8, glideSpeedKmh: 500 };
-  const d = 10000;
-  const h = d / 8 + 1500; // above the slope
-  const atOne = tauSeries([d], [h], { ...base, beta: 1 })[0];
-  const over = tauSeries([d], [h], { ...base, beta: 5 })[0]; // clamps to 1
-  const under = tauSeries([d], [h], { ...base, beta: -3 })[0]; // clamps to 0
-  const atZero = tauSeries([d], [h], { ...base, beta: 0 })[0];
-  assert.ok(close(over, atOne, 1e-9), `beta>1 not clamped: ${over} vs ${atOne}`);
-  assert.ok(close(under, atZero, 1e-9), `beta<0 not clamped: ${under} vs ${atZero}`);
-});
-
-test('tauSeries: default glideRatio (7) and output length match input', () => {
-  const p = { vccMps: 10, climbMps: 2.5, hFinM: 0 }; // no glideRatio/beta/glideSpeed
-  const d = [3500]; // hNeed = 3500/7 = 500
-  const belowExplicit = tauSeries(d, [499], { ...p, glideRatio: 7 })[0];
-  const belowDefault = tauSeries(d, [499], p)[0];
-  assert.ok(close(belowExplicit, belowDefault, 1e-9), 'default glideRatio != 7');
-  assert.equal(tauSeries([1000, 2000, 3000], [100, 200, 300], p).length, 3);
+// ---- tauSeries: shape ------------------------------------------------------
+test('tauSeries: output length matches input', () => {
+  assert.equal(tauSeries([1000, 2000, 3000], [700, 800, 900], TAU_P).length, 3);
 });
 
 // ---- smoothAlt: shape / bounds -------------------------------------------

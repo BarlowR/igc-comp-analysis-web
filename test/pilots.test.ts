@@ -62,8 +62,9 @@ test('pilotNameFromHeader: null without a pilot record, so the caller falls back
 });
 
 test('pilotNameFromHeader: an empty header name does not beat the fallback', () => {
-  // Four tracks in the archive carry a bare "HFPLTPILOT:", which used to blank
-  // the pilot out even though the filename named them perfectly well.
+  // Four tracks in the archive carry a bare "HFPLTPILOT:". Treating that as a
+  // name would blank the pilot out even though the filename names them
+  // perfectly well.
   for (const header of ['HFPLTPILOT:', 'HFPLTPILOT:   ']) {
     const text = igc(['AXTEST', 'HFDTE070726', header]);
     assert.equal(pilotNameFromHeader(text), null);

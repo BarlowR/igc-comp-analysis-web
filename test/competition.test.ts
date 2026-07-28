@@ -69,10 +69,15 @@ test('Competition: reproduces archived day6 constants and satisfies the τ formu
   assert.ok(comp.pilots.some((p) => p.completed), 'expected at least one finisher');
   assert.ok(ttg.M > 0 && ttg.Vcc > 0 && ttg.dTask > 0, `bad constants: ${JSON.stringify(ttg)}`);
   assert.ok(Number.isFinite(ttg.hFin) && Number.isFinite(ttg.hRef));
+  // Measured par glide: physically plausible, and not the sparse-day fallback
+  // (60 km/h / 7.0) — day6 has plenty of finisher gliding to measure from.
+  assert.ok(ttg.Vg > 8 && ttg.Vg < 25, `implausible par glide speed ${ttg.Vg} m/s`);
+  assert.ok(ttg.g > 3 && ttg.g < 15, `implausible par glide ratio ${ttg.g}`);
+  assert.ok(Math.abs(ttg.Vg - 60 / 3.6) > 1e-9 || Math.abs(ttg.g - 7) > 1e-9, 'glide params look like the fallback');
 
   // (a) exact reproduction of the stored build output
   const stored = JSON.parse(readFileSync(DAY_JSON, 'utf8')).map;
-  for (const k of ['M', 'Vcc', 'hFin', 'dTask', 'hRef', 'tauRef'] as const) {
+  for (const k of ['M', 'Vcc', 'Vg', 'g', 'pace', 'hFin', 'dTask', 'hRef', 'tauRef'] as const) {
     assert.ok(close(ttg[k], stored.timeToGo[k], Math.abs(stored.timeToGo[k]) * 1e-9 + 1e-9), `${k}: ${ttg[k]} vs stored ${stored.timeToGo[k]}`);
   }
   assert.equal(map.startMs, stored.startMs);
@@ -89,9 +94,13 @@ test('Competition: reproduces archived day6 constants and satisfies the τ formu
   assert.ok(close(ttg.M, mCheck, 1e-9), `M ${ttg.M} vs median-climb ${mCheck}`);
   assert.ok(close(ttg.Vcc, ttg.dTask / medComp, 1e-6), `Vcc ${ttg.Vcc} vs dTask/medComp ${ttg.dTask / medComp}`);
   assert.ok(close(ttg.hFin, hFinCheck, 1e-9), `hFin ${ttg.hFin} vs min-finish ${hFinCheck}`);
-  // tauRef = (dTask/Vcc − (hRef − hFin)/M)/60
-  const tauRefCheck = (ttg.dTask / ttg.Vcc - (ttg.hRef - ttg.hFin) / ttg.M) / 60;
+  // tauRef = pace-fitted τ at the reference start state — which by construction
+  // is exactly the par pilots' actual median gate→ESS duration in minutes.
+  const owedRef = Math.max(0, ttg.dTask / ttg.g - (ttg.hRef - ttg.hFin));
+  const tauRefCheck = (ttg.pace * (ttg.dTask / ttg.Vg + owedRef / ttg.M)) / 60;
   assert.ok(close(ttg.tauRef, tauRefCheck, 1e-6), `tauRef ${ttg.tauRef} vs formula ${tauRefCheck}`);
+  assert.ok(close(ttg.tauRef, medComp / 60, 1e-6), `tauRef ${ttg.tauRef} vs median par duration ${medComp / 60}`);
+  assert.ok(ttg.pace > 0.4 && ttg.pace < 1.3, `implausible pace fit ${ttg.pace}`);
 
   // τ ≈ 0 at the ESS crossing for a finisher
   const fin = map.tracks.find((tr) => tr.completionMs != null && tr.tau);
@@ -114,7 +123,8 @@ const DUP_DIR = fileURLToPath(new URL('../dist/archive/chelan-us-open-2026/day1/
 test('Competition: one row per pilot when a day holds two tracklogs for them', { timeout: 120_000 }, (t) => {
   // chelan-us-open day 1 has two real cases: Mike Steed's 344-byte stub beside
   // his actual 126 km flight, and Robert Barlow's flight logged twice by two
-  // instruments. Both used to produce two rows in the stats table.
+  // instruments. Without per-pilot dedup, each would produce two rows in the
+  // stats table.
   const files = [
     'mike_steed_2026-06-21_01.171.igc',
     'mike_steed_2026-06-21_02.171.igc',

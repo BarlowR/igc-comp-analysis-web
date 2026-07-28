@@ -1,11 +1,11 @@
 /**
- * Time Lost metric (build-time + client). Ports analysis/progress_prototype.py,
- * using the FAI/airscore task-optimisation model (`find_closest`).
+ * Time Lost metric (build-time + client). Mirrors analysis/progress_prototype.py
+ * (parity-checked by analysis/parity_check.py).
  *
- * `buildGeom` optimises the whole task route ONCE (airscore `find_shortest_route`:
- * 3 refinement passes, each turnpoint placed at the point on its cylinder nearest
- * the line joining its neighbours' current points, or left inside when that line
- * already crosses the cylinder). `remainingSeries` then computes D_rem per fix by
+ * `buildGeom` optimises the whole task route ONCE (3 Gauss-Seidel refinement
+ * passes; each interior turnpoint sits at the true shortest touch on its
+ * cylinder — see waypointThroughCylinder — or inside it when the neighbour line
+ * already crosses). `remainingSeries` then computes D_rem per fix by
  * RE-OPTIMISING the shortest route from the pilot's current position through the
  * un-tagged cylinders to ESS (warm-started from the previous fix). Re-optimising
  * each fix is what keeps D_rem continuous across cylinder tags — a cylinder you
@@ -13,9 +13,10 @@
  * cylinder — while still penalising off-course flying (the route lengthens as you
  * drift sideways).
  *
- * `tauSeries` turns D_rem + smoothed height into "Time Lost at par" (minutes),
- * with a final-glide cap on the height credit (see its doc). `lostSeries` detrends
- * that into "minutes behind the par ghost".
+ * `tauSeries` turns D_rem + smoothed height into "Time Lost at par" (minutes):
+ * glide time for the remaining course plus climb time for the height still owed,
+ * at rates measured from the day's par pilots (see its doc). `lostSeries`
+ * detrends that into "minutes behind the par ghost".
  */
 import type { MapTurnpoint } from './competition';
 
@@ -76,9 +77,11 @@ export function nearestOnSegment(
  * When the A–B segment already pierces the disk the turnpoint costs nothing —
  * the touch is the on-line point (free). Otherwise the minimum lies on the near
  * arc; we bracket it with a coarse scan and ternary-search that bracket. Using
- * the true minimiser (vs the old closest-to-line heuristic, which over-sends a
- * pilot beside the turnpoint straight to the perpendicular foot) keeps D_rem at
- * the genuine shortest remaining distance — worst case ~3.5% shorter.
+ * the true minimiser — rather than airscore `find_closest`'s closest-to-line
+ * heuristic, which over-sends a pilot beside the turnpoint straight to the
+ * perpendicular foot — keeps D_rem at the genuine shortest remaining distance,
+ * worst case ~3.5% shorter. Diverges from airscore's scoring by design: this is
+ * a progress metric, not the official score.
  */
 export function waypointThroughCylinder(
   cx: number,
@@ -285,71 +288,72 @@ export function smoothAlt(times: number[], alt: number[], winMs = 7_000): number
 // ---- Time Lost (τ) and detrended time-lost (L) --------------------------
 
 export interface TauParams {
-  vccMps: number; // par cross-country speed, m/s
-  climbMps: number; // par climb rate M, m/s
-  hFinM: number; // finish datum, m MSL (median ESS altitude)
-  glideRatio?: number; // final-glide cap, default 7 (i.e. gradient 1/7)
-  beta?: number; // surplus height discount in [0, 1], default 0
-  glideSpeedKmh?: number; // physical final-glide ground-speed cap, default 60 km/h
+  /** Par glide ground speed Vg (m/s), measured from the day's par pilots. */
+  glideMps: number;
+  /**
+   * Par ground glide ratio g. MUST be Vg/s with both measured over the same
+   * gliding fixes — that identity is what makes par gliding exactly neutral.
+   */
+  glideRatio: number;
+  /** Par climb rate M (m/s). */
+  climbMps: number;
+  /** Finish datum (m MSL). */
+  hFinM: number;
 }
 
-let betaWarned = false;
-
 /**
- * Time Lost at par (minutes), with a final-glide cap on the altitude credit.
- * Height is credited at 1/M only up to what's needed to glide to goal
- * (h_need = h_fin + D_rem/glideRatio); surplus above that slope is discounted by
- * `beta`.
+ * Time Lost at par (minutes): the time a par pilot would need to fly from this
+ * state (D_rem metres of course, h metres MSL) to ESS, under the two-phase
+ * idealisation — no course progress while climbing, no lift while gliding. The
+ * two ledgers then decouple, and τ is one line:
  *
- *   hNeed  = hFinM + dRem/glideRatio
- *   credit = min(h, hNeed) − hFinM + beta·max(h − hNeed, 0)
- *   tau    = max( ( dRem/vccMps − credit/climbMps ) / 60,  dRem/vGlide/60 )
+ *   τ = dRem/Vg  +  max(0, dRem/g − (h − hFin)) / M
  *
- * The `max(…)` is a PHYSICAL FLOOR at the pure-glide time dRem/vGlide (vGlide =
- * glideSpeedKmh, default 60 km/h). Without it, on the glide slope τ collapses to
- * dRem/Vg with the MacCready-inverted Vg = V_cc·M/(M − g·V_cc): fine for sailplanes
- * (g≈1/40) but for paraglider glide ratios (g≈1/7) the denominator collapses and Vg
- * runs to 60–180 km/h or diverges, over-crediting final glide. Flooring at a real
- * glide ground speed caps that over-credit; a pilot on glide is never scored faster
- * than vGlide can carry them.
+ * Glide time for the whole course, plus climb time for whatever height the
+ * course still needs beyond what's in hand. The single max() is the physics:
+ * height still owed cannot be negative — you can't glide on altitude you don't
+ * have, and you can't un-climb altitude you do. It doubles as the final-glide
+ * cap: above the slope (h − hFin ≥ dRem/g) the climb term is zero, surplus
+ * height is worth nothing, and topping up reads as pure time loss.
  *
- * Intended behaviour:
- *  - Below the glide slope (h ≤ hNeed) this is IDENTICAL to the plain formula
- *    ( dRem/V_cc − (h − h_fin)/M )/60 — mid-race values do not change at all (the
- *    floor does not bind there, since V_cc < vGlide ⇒ dRem/V_cc > dRem/vGlide).
- *  - Approaching/on the slope the height credit would push τ below the physical
- *    glide time; the floor holds it at dRem/vGlide, so surplus height is worth
- *    nothing and topping up after glide is made reads as pure time loss.
- *  - hNeed shrinks with dRem, so a pilot who deviates falls back below the slope
- *    and full credit is automatically restored.
+ * All three rates are the day's par pilots', measured from their tracks (see
+ * buildMapData): M from their climbs; Vg and sink s over their gliding fixes,
+ * with g ≡ Vg/s. That identity makes par gliding exactly neutral (dτ/dt = −1),
+ * and the pace needs no separate V_cc — it is derived, 1/Vcc = 1/Vg + 1/(g·M),
+ * so it cannot disagree with the model's own glide time. That self-consistency
+ * is what lets one clamp suffice: mixing a measured pace with hand-set glide
+ * constants would need a cap or floor to referee wherever the two estimates of
+ * the same arrival crossed.
+ *
+ * Below the slope ∂τ/∂h = −1/M everywhere: climbing always pays, at the rate
+ * the climb beats M. Known bias, accepted by design: real climbs drift with the
+ * wind, so on a downwind day a par climb reads as gaining (the drift progress
+ * is credited through the shrinking dRem at the derived pace) — the metric
+ * favours time spent climbing over time spent gliding by that margin.
+ *
+ * This returns the RAW two-phase time. The shipped τ is multiplied by the day's
+ * pace fit (see buildMapData in competition.ts): drift and porpoising make real
+ * par faster than the model, so τ is scaled to make the ghost's start-state
+ * time equal the par pilots' actual median duration — which is what makes the
+ * chart's par line horizontal.
  */
 export function tauSeries(dRem: number[], hSmooth: number[], p: TauParams): number[] {
-  const glideRatio = p.glideRatio ?? 7;
-  const rawBeta = p.beta ?? 0;
-  if (rawBeta > 0.3 && !betaWarned) {
-    console.warn(`tauSeries: beta=${rawBeta} > 0.3 is not meaningful; height should not be over-credited.`);
-    betaWarned = true;
-  }
-  const beta = Math.min(1, Math.max(0, rawBeta));
-  const vGlideMps = (p.glideSpeedKmh ?? 60) / 3.6;
   const out = new Array<number>(dRem.length);
   for (let i = 0; i < dRem.length; i++) {
     const d = dRem[i];
-    const hNeed = p.hFinM + d / glideRatio;
-    const h = hSmooth[i];
-    const credit = Math.min(h, hNeed) - p.hFinM + beta * Math.max(h - hNeed, 0);
-    const tauCredit = (d / p.vccMps - credit / p.climbMps) / 60;
-    out[i] = Math.max(tauCredit, d / vGlideMps / 60); // floor at physical glide time
+    const heightOwed = Math.max(0, d / p.glideRatio - (hSmooth[i] - p.hFinM));
+    out[i] = (d / p.glideMps + heightOwed / p.climbMps) / 60;
   }
   return out;
 }
 
 /**
  * Detrended "minutes behind the par ghost": L = tau + (t − t_gate)/60 − tauRef,
- * with ONE fleet anchor `tauRefMin`. The clock is the shared race clock (gateMs =
- * 0); do NOT anchor per-pilot. A trace therefore starts at its pilot's gate
- * crossing at a nonzero L that is their start quality (late start adds minutes;
- * height above hRef subtracts (h − hRef)/M/60).
+ * with ONE fleet anchor `tauRefMin` (with the pace fit, ≡ the par pilots' actual
+ * median gate→ESS duration). The clock is the shared race clock (gateMs = 0);
+ * do NOT anchor per-pilot. A trace therefore starts at its pilot's gate crossing
+ * at a nonzero L that is their start quality — a late start adds minutes, and
+ * starting above hRef subtracts height at the pace-scaled climb rate.
  */
 export function lostSeries(tau: number[], timesMs: number[], gateMs: number, tauRefMin: number): number[] {
   const out = new Array<number>(tau.length);

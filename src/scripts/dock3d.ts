@@ -227,8 +227,8 @@ export function mountDocks(): void {
 
 /**
  * Reveal the notes dock. It ships hidden with its column collapsed to zero, so a
- * build without accounts — or a signed-out visitor — gets the old two-column
- * layout rather than an empty panel.
+ * build without accounts — or a signed-out visitor — gets a plain two-column
+ * layout (pilots + globe) rather than an empty panel.
  */
 export function showNotesDock(): void {
   const dock = document.getElementById('dockRight');

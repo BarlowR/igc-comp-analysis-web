@@ -1155,12 +1155,23 @@ function createTimeToGoPlot(
   colors: Map<string, string>,
   onScrub: (ms: number) => void,
 ): (t: number) => void {
+  // A wheel and a 48px axis gutter are desktop instruments; gate the y-clipping
+  // on the input rather than the viewport, so a small laptop window keeps it and
+  // a large tablet doesn't advertise a gesture it can't make.
+  const finePointer = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+
   const wrap = document.createElement('div');
   wrap.className = 'alt-plot';
   const title = document.createElement('div');
   title.className = 'alt-plot-title';
-  title.textContent =
-    'Time lost vs par (min) — par = top-10 median (start→finish); below = ahead, above = behind; dashed = final glide; drag to scrub';
+  // The day's measured par model alongside the name — the terms τ is computed
+  // from (timetogo.ts): par climb M, and glide speed/ratio taken off the par
+  // pilots' gliding fixes at build time.
+  const ttg = data.timeToGo;
+  const parTerms = ttg
+    ? ` MC: ${ttg.M.toFixed(1)} m/s, Nominal Glide: ${(ttg.Vg * 3.6).toFixed(0)} km/h at ${ttg.g.toFixed(1)}:1, Par Correction: ×${ttg.pace.toFixed(2)}`
+    : '';
+  title.textContent = `Time lost vs top-10 median. ${parTerms}`;
   const canvas = document.createElement('canvas');
   canvas.className = 'alt-plot-canvas';
   wrap.append(title, canvas);
@@ -1196,10 +1207,11 @@ function createTimeToGoPlot(
 
   // Par reference = the median top-10 finisher's line, from their median START
   // point (time, L) to their median FINISH point. The top-10 straddle it, so the
-  // gap to this line reads as minutes ahead of / behind the median winner. Drawn
-  // as a single diagonal (not the old flat L=0 line): with the height-credit τ, a
-  // finisher's L drifts up ~one climb-time of start height over the flight, so a
-  // horizontal par can only touch one end. A day constant, independent of selection.
+  // gap to this line reads as minutes ahead of / behind the median winner. The
+  // pace fit (competition.ts) pins both median endpoints to L ≈ 0, so this comes
+  // out horizontal; it is still drawn through the measured points rather than
+  // flat at 0 so any residual calibration drift shows instead of hiding. A day
+  // constant, independent of selection.
   const medOf = (xs: number[]): number => {
     const s = [...xs].sort((a, b) => a - b);
     const n = s.length;
@@ -1232,6 +1244,16 @@ function createTimeToGoPlot(
   // back to all tracks when nothing is selected. Recomputed on selection change.
   let yMin = 0;
   let yMax = 1;
+  /** The fit-to-selection bounds, kept even while a hand-clipped range is in force. */
+  let autoY: [number, number] = [0, 1];
+  /**
+   * Set once the reader clips the axis by hand. From then on the y axis is
+   * theirs: changing the selection re-fits the time axis but leaves this alone,
+   * because a clip is usually made in order to then go looking through pilots.
+   * Double-clicking the gutter hands it back. Deliberately not persisted — a
+   * range chosen for one day's spread means nothing on the next.
+   */
+  let manualY: [number, number] | null = null;
   let tXMin = tMin;
   let tXMax = tMax;
   const recomputeBounds = (): void => {
@@ -1260,8 +1282,8 @@ function createTimeToGoPlot(
       hi = 1;
     }
     const pad = (hi - lo) * 0.06 || 1;
-    yMin = lo - pad;
-    yMax = hi + pad;
+    autoY = [lo - pad, hi + pad];
+    [yMin, yMax] = manualY ?? autoY;
     tXMin = Number.isFinite(xlo) ? xlo : tMin;
     tXMax = Number.isFinite(xhi) && xhi > xlo ? xhi : tXMin + 1;
   };
@@ -1330,6 +1352,14 @@ function createTimeToGoPlot(
       bc.fillStyle = '#6b625e';
       bc.fillText(String(Math.round(v)), PAD.l - 6, y);
     }
+    // Everything data-shaped is clipped to the plot rect. The axis fits its data
+    // until someone clips it by hand, and from then on lines run off the top and
+    // bottom — over the tick labels and the title if nothing stops them.
+    bc.save();
+    bc.beginPath();
+    bc.rect(PAD.l, PAD.t, plotW, plotH);
+    bc.clip();
+
     // Grey full lines for context.
     bc.strokeStyle = 'rgba(154, 148, 138, 0.4)';
     bc.lineWidth = 1;
@@ -1360,6 +1390,7 @@ function createTimeToGoPlot(
       strokePath(bc, [[sx, PAD.t], [sx, PAD.t + plotH]]);
       bc.setLineDash([]);
     }
+    bc.restore();
     base = b;
   };
 
@@ -1373,6 +1404,11 @@ function createTimeToGoPlot(
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.lineJoin = 'round';
     ctx.lineCap = 'round';
+    // Same clip as the cached layer: a hand-clipped axis puts pilots off-plot.
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(PAD.l, PAD.t, plotW, plotH);
+    ctx.clip();
 
     const highlight = sel.highlight();
     const selected = tracks.filter((tr) => sel.has(tr.pilot));
@@ -1441,6 +1477,7 @@ function createTimeToGoPlot(
       ctx.fill();
       ctx.stroke();
     }
+    ctx.restore();
   };
 
   const resize = (): void => {
@@ -1463,21 +1500,90 @@ function createTimeToGoPlot(
     const x = clientX - canvas.getBoundingClientRect().left - PAD.l;
     return tXMin + Math.min(1, Math.max(0, x / plotW)) * (tXMax - tXMin);
   };
-  let dragging = false;
+
+  // --- clipping the y axis by hand (desktop) --------------------------------
+  // One pilot who lands out at −180 min flattens the leaders into a band three
+  // pixels tall, and they are usually the reason the chart is open. Wheel zooms
+  // the value axis about the cursor; dragging the axis gutter pans it.
+  const cssX = (clientX: number): number => clientX - canvas.getBoundingClientRect().left;
+  /** The tick-label gutter left of the plot: a pan handle, not a scrub target. */
+  const inGutter = (clientX: number): boolean => finePointer && cssX(clientX) < PAD.l;
+
+  // Rebuilding the cached layer redraws every pilot's full line, so a drag that
+  // did it per pointermove would stall a big day. One rebuild per frame instead
+  // (the docks coalesce their resize nudge the same way).
+  let yFrame = 0;
+  const applyY = (min: number, max: number): void => {
+    manualY = [min, max];
+    yMin = min;
+    yMax = max;
+    if (yFrame) return;
+    yFrame = requestAnimationFrame(() => {
+      yFrame = 0;
+      if (plotW > 0 && canvas.clientWidth > 0) {
+        buildBase();
+        draw(lastT);
+      }
+    });
+  };
+
+  if (finePointer) {
+    canvas.addEventListener(
+      'wheel',
+      (e) => {
+        if (plotH <= 0 || cssX(e.clientX) < PAD.l) return; // the gutter pans instead
+        e.preventDefault(); // this gesture is the chart's, not the page's
+        const span = yMax - yMin;
+        const y = e.clientY - canvas.getBoundingClientRect().top;
+        // Zoom about the value under the cursor, so the line being read stays put.
+        const at = yMin + (1 - (y - PAD.t) / plotH) * span;
+        const MIN_SPAN = 0.5; // minutes — below this the axis says nothing
+        const next = Math.min(
+          Math.max(span * (e.deltaY > 0 ? 1.15 : 1 / 1.15), MIN_SPAN),
+          (autoY[1] - autoY[0]) * 4, // no zooming out into empty space
+        );
+        const min = at - ((at - yMin) * next) / span;
+        applyY(min, min + next);
+      },
+      { passive: false },
+    );
+  }
+
+  let dragging: 'time' | 'y' | null = null;
+  let lastPanY = 0;
   canvas.addEventListener('pointerdown', (e) => {
-    dragging = true;
     canvas.setPointerCapture(e.pointerId);
+    if (inGutter(e.clientX)) {
+      dragging = 'y';
+      lastPanY = e.clientY;
+      return;
+    }
+    dragging = 'time';
     onScrub(timeFromX(e.clientX));
   });
   canvas.addEventListener('pointermove', (e) => {
-    if (dragging) onScrub(timeFromX(e.clientX));
+    if (finePointer && !dragging) canvas.style.cursor = inGutter(e.clientX) ? 'ns-resize' : '';
+    if (dragging === 'time') {
+      onScrub(timeFromX(e.clientX));
+    } else if (dragging === 'y' && plotH > 0) {
+      // The data follows the pointer: drag down and the range it sits in rises.
+      const dv = ((e.clientY - lastPanY) * (yMax - yMin)) / plotH;
+      lastPanY = e.clientY;
+      applyY(yMin + dv, yMax + dv);
+    }
   });
   const endDrag = (e: PointerEvent): void => {
-    dragging = false;
+    dragging = null;
     if (canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
   };
   canvas.addEventListener('pointerup', endDrag);
   canvas.addEventListener('pointercancel', endDrag);
+  // Give the axis back to the selection.
+  canvas.addEventListener('dblclick', (e) => {
+    if (!inGutter(e.clientX)) return;
+    manualY = null;
+    rescale();
+  });
 
   // Selection changes the clipped bounds → rescale (rebuild base) then redraw;
   // highlight only changes draw order, so a plain redraw is enough.

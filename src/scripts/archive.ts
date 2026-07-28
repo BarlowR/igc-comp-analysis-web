@@ -1,7 +1,7 @@
 /**
  * Archive viewer controller: fetches the precomputed analysis results for this
  * day (built server-side from the archived IGC/task files) and renders them.
- * The client no longer downloads the IGC tracklogs or re-runs the analysis.
+ * The client never touches the IGC tracklogs and runs no analysis of its own.
  */
 import { renderArchivedResults, type ArchivedResults } from './analysis';
 import { installDayClaim } from './day-claim';
