@@ -78,6 +78,30 @@ interface Columns {
 
 export type Stats = Record<string, number | boolean | null>;
 
+/**
+ * The pilot name IgcFlight would take from this text's header, or null if the
+ * file has no HFPLTPILOT record (in which case the caller's fallback wins).
+ *
+ * Split out so callers that only need the name — the pilot roster built by
+ * src/pages/pilots.json.ts — can read a few KB off the front of each IGC
+ * instead of parsing millions of B-records. It must stay in step with the
+ * HFPLTPILOT branch in IgcFlight.parse(); test/pilots.test.ts asserts they
+ * agree.
+ */
+export function pilotNameFromHeader(text: string): string | null {
+  for (const line of text.split(/\r?\n/)) {
+    if (line.length === 0) continue;
+    // The header ends at the first B-record; anything after is fixes.
+    if (line[0] === 'B') break;
+    if (line.startsWith('HFPLTPILOT')) {
+      const value = line.split(':')[1];
+      // An empty value counts as "no name": see the matching branch in parse().
+      if (value?.trim()) return value;
+    }
+  }
+  return null;
+}
+
 export class IgcFlight {
   pilotName = 'Unknown Pilot';
   day: Date = new Date(); // mutated on midnight rollover, mirroring Python self.day
@@ -120,7 +144,11 @@ export class IgcFlight {
           else dateStr = line.slice(5, 11);
           this.day = parseIgcDate(dateStr);
         } else if (line.startsWith('HFPLTPILOT')) {
-          this.pilotName = line.split(':')[1] ?? this.pilotName;
+          // Some trackers emit a bare "HFPLTPILOT:" with no name. That carries
+          // no information, so keep the fallback (usually the filename) rather
+          // than blanking the pilot out.
+          const value = line.split(':')[1];
+          if (value?.trim()) this.pilotName = value;
         }
 
         if (line[0] === 'B') {
@@ -153,10 +181,15 @@ export class IgcFlight {
     }
     this.lastHour = hour;
 
-    const t = new Date(
-      this.day.getFullYear(),
-      this.day.getMonth(),
-      this.day.getDate(),
+    // A B-record's clock is UTC, so the fix time is a true UTC instant. Building
+    // it with the local Date constructor instead would bake the parsing
+    // machine's offset into every timestamp — invisible while one machine both
+    // builds and reads the archive, seven hours wrong the moment a CI box in UTC
+    // builds what a pilot in California reads.
+    const t = Date.UTC(
+      this.day.getUTCFullYear(),
+      this.day.getUTCMonth(),
+      this.day.getUTCDate(),
       hour,
       minute,
       sec,
@@ -174,7 +207,7 @@ export class IgcFlight {
     let lon = lonDeg + lonMin / 60;
     lon *= east ? 1 : -1;
 
-    this.fixes.timeMs.push(t.getTime());
+    this.fixes.timeMs.push(t);
     this.fixes.lat.push(lat);
     this.fixes.lon.push(lon);
     this.fixes.validity.push(line[24]);
@@ -376,14 +409,8 @@ export class IgcFlight {
     // cross UTC midnight, `this.day` has been advanced during fix parsing, which
     // would push the gate a day past the whole flight and empty the window.
     const day = this.firstDay ?? this.day;
-    return new Date(
-      day.getFullYear(),
-      day.getMonth(),
-      day.getDate(),
-      h,
-      m,
-      s,
-    ).getTime();
+    // The gate string is UTC ("19:30:00Z"), like the fixes it gets compared to.
+    return Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate(), h, m, s);
   }
 
   /** Walk the turnpoint cylinders to label each fix with the next waypoint. */
@@ -601,7 +628,9 @@ function parseIgcDate(ddmmyy: string): Date {
   const dd = parseInt(ddmmyy.slice(0, 2), 10);
   const mm = parseInt(ddmmyy.slice(2, 4), 10);
   const yy = parseInt(ddmmyy.slice(4, 6), 10);
-  return new Date(2000 + yy, mm - 1, dd);
+  // UTC midnight: an IGC date is a UTC date, and the machine that reads this
+  // file is not necessarily in the same zone as the one that built the archive.
+  return new Date(Date.UTC(2000 + yy, mm - 1, dd));
 }
 
 function count(arr: number[], pred: (v: number) => boolean): number {

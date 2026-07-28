@@ -4,6 +4,7 @@
 // Cesium globe with an animated, scrubbable timeline. One static route per
 // manifest entry, mirroring [day].astro.
 import Base from '../../../../layouts/Base.astro';
+import LoadingOverlay from '../../../../components/LoadingOverlay.astro';
 import manifest from '../../../../archive-manifest.json';
 
 interface Entry {
@@ -28,57 +29,128 @@ const clientEntry = { base, label: heading, utcOffsetMinutes: entry.utcOffsetMin
 ---
 
 <Base title={`${heading} — 3D`}>
-  <div class="viewer3d">
+  <div class="viewer3d no-right">
+    <!-- Phones only. The viewer covers the site nav, and the dock bars that
+         carry these links on a wider screen are folded inside drawers here —
+         so with both drawers shut there would be no way out of the page. -->
+    <header class="viewer3d-top">
+      <a class="backlink" href={base}>← 2D analysis</a>
+      <span class="dock-account"></span>
+    </header>
+
     <div id="cesiumContainer"></div>
 
     <!-- Full-screen loading overlay; track3d.ts advances the step text and fades it out. -->
-    <div id="loading3d" class="loading3d">
-      <div class="loading3d-box">
-        <div class="loading3d-spinner" aria-hidden="true"></div>
-        <div class="loading3d-title">{heading}</div>
-        <div id="loading3d-step" class="loading3d-step">Starting the 3D viewer…</div>
+    <LoadingOverlay title={heading} step="Starting the 3D viewer…" />
+
+    <!-- Sign-in wall, revealed by gate3d.ts in place of the loading overlay when
+         there's no session. The viewer script is never loaded in that case. -->
+    <div id="gate3d" class="gate3d" hidden>
+      <div class="gate3d-box">
+        <div class="gate3d-icon" aria-hidden="true">◈</div>
+        <h1>Fly this day in 3D</h1>
+        <p class="gate3d-day">{heading}</p>
+        <p class="gate3d-copy">
+          3D Replay is for account holders. Sign-up is free: 
+        </p>
+        <a id="gate3d-signin" class="account-btn gate3d-btn" href="/account">
+          Sign in or create an account
+        </a>
+        <a class="gate3d-back" href={base}>← Back to the 2D analysis</a>
       </div>
     </div>
 
     <!-- Shared altitude-plot scrubber (mountTimeline) is inserted after this anchor. -->
     <div class="viewer3d-bottom"><div id="timeAnchor"></div></div>
 
-    <div class="panel3d">
-      <div class="panel3d-head">
-        <h1>{heading}</h1>
+    <!-- Left dock: the pilot list. dock3d.ts drives the width + collapse. -->
+    <aside id="dockLeft" class="dock dock-left">
+      <div class="dock-bar">
         <a class="backlink" href={base}>← 2D analysis</a>
+        <button class="dock-toggle" type="button" aria-controls="dockLeftBody">‹</button>
       </div>
-      <div id="status3d" class="status3d">Loading globe…</div>
-      <div class="panel3d-controls">
-        <button id="showAll" type="button">Show all</button>
-        <button id="hideAll" type="button">Hide all</button>
+      <span class="dock-rail-label" aria-hidden="true">Pilots</span>
+      <div id="dockLeftBody" class="dock-body">
+        <h1>{heading}</h1>
+        <div id="status3d" class="status3d">Loading globe…</div>
+        <div class="panel3d-controls">
+          <button id="showAll" type="button">Show all</button>
+          <button id="hideAll" type="button">Hide all</button>
+        </div>
+        <ul id="pilotList" class="pilot-list"></ul>
       </div>
-      <ul id="pilotList" class="pilot-list"></ul>
-    </div>
+      <div class="dock-grip" title="Drag to resize"></div>
+    </aside>
+
+    <!-- Right dock: notes on a moment in a pilot's flight. Ships hidden with its
+         column at zero width; annotations3d.ts reveals it once a session and the
+         accounts config both check out. -->
+    <aside id="dockRight" class="dock dock-right" hidden>
+      <div class="dock-bar">
+        <button class="dock-toggle" type="button" aria-controls="dockRightBody">›</button>
+        {/* The viewer covers the site nav, so this is the only way to the
+            account page from here. Filled in by annotations3d.ts. */}
+        <span id="notes3dAccount" class="dock-account"></span>
+      </div>
+      <span class="dock-rail-label" aria-hidden="true">Notes</span>
+      <div id="dockRightBody" class="dock-body">
+        <div id="notes3d" class="notes3d">
+          <div class="notes3d-head">
+            <span class="notes3d-title">Notes</span>
+            <button id="noteAdd" type="button" title="Note the pinned pilot at the current time">
+              ＋ Add note here
+            </button>
+          </div>
+          <p id="notes3dStatus" class="notes3d-status" role="status" aria-live="polite"></p>
+          <div id="notes3dComposer"></div>
+          <ul id="notes3dList" class="notes3d-list"></ul>
+        </div>
+      </div>
+      <div class="dock-grip" title="Drag to resize"></div>
+    </aside>
   </div>
 
   <script type="application/json" id="archive-entry" set:html={JSON.stringify(clientEntry)} />
   <!-- Must run before the Cesium module so it finds its static assets under /cesium. -->
   <script is:inline>window.CESIUM_BASE_URL = "/cesium/";</script>
+  <!-- The gate, not the viewer: track3d.ts is imported from there once a session
+       checks out, so a signed-out visitor never downloads Cesium. -->
   <script>
-    import '../../../../scripts/track3d.ts';
+    import '../../../../scripts/gate3d.ts';
   </script>
 </Base>
 
 <style is:global>
-  /* Full-viewport docked layout: pilot table on the left, globe centre, the
+  /* Full-viewport docked layout: pilots left, globe centre, notes right, the
      altitude scrubber pinned along the bottom — each a real region, not a
-     translucent panel floating over the map. */
+     translucent panel floating over the map.
+
+     The two dock columns are custom properties so dock3d.ts can resize them with
+     a single style write; the map column (1fr) takes whatever is left. Values
+     here are only the pre-JS defaults. */
   .viewer3d {
+    --dock-left: 320px;
+    --dock-right: 320px;
     position: fixed;
     inset: 0;
     display: grid;
-    grid-template-columns: min(320px, 34vw) 1fr;
-    grid-template-rows: 1fr auto;
+    grid-template-columns: var(--dock-left) 1fr var(--dock-right);
+    /* The top row is a phone's header; it has no item on wider screens and
+       collapses to nothing there. */
+    grid-template-rows: auto 1fr auto;
     grid-template-areas:
-      'panel map'
-      'slider slider';
+      'top top top'
+      'left map right'
+      'slider slider slider';
     background: var(--bg, #e7e7e7);
+  }
+  .viewer3d-top {
+    grid-area: top;
+    display: none;
+  }
+  /* No notes dock (accounts off, or not signed in): collapse its column away. */
+  .viewer3d.no-right {
+    --dock-right: 0px;
   }
   #cesiumContainer {
     grid-area: map;
@@ -87,55 +159,66 @@ const clientEntry = { base, label: heading, utcOffsetMinutes: entry.utcOffsetMin
     height: 100%;
     min-height: 0;
   }
-  /* Full-screen loading overlay over the globe. */
-  .loading3d {
+  /* The loading overlay itself is components/LoadingOverlay.astro, shared with
+     the 2D analysis page. */
+
+  /* Sign-in wall. Same full-cover footprint as the loading overlay — .viewer3d
+     is fixed inset:0, so this hides the top nav too and has to carry its own way
+     out (the sign-in button and the back link). */
+  .gate3d {
     position: absolute;
     inset: 0;
-    z-index: 20;
+    z-index: 25;
     display: grid;
     place-items: center;
-    background: var(--bg, #e7e7e7);
-    transition: opacity 0.55s ease;
-  }
-  .loading3d.hidden {
-    opacity: 0;
-    pointer-events: none;
-  }
-  .loading3d-box {
-    text-align: center;
     padding: 1.5rem;
-    max-width: min(90vw, 30rem);
+    background: var(--bg, #e7e7e7);
   }
-  .loading3d-spinner {
-    width: 46px;
-    height: 46px;
-    margin: 0 auto 1.1rem;
-    border-radius: 50%;
-    border: 4px solid rgba(20, 12, 12, 0.15);
-    border-top-color: var(--accent);
-    animation: loading3d-spin 0.9s linear infinite;
-  }
-  .loading3d.error .loading3d-spinner {
+  /* display:grid would otherwise beat the hidden attribute. */
+  .gate3d[hidden] {
     display: none;
   }
-  .loading3d-title {
-    font-size: 1.05rem;
-    font-weight: 500;
-    color: var(--text);
-    line-height: 1.3;
+  .gate3d-box {
+    max-width: min(90vw, 26rem);
+    text-align: center;
   }
-  .loading3d-step {
-    margin-top: 0.4rem;
+  .gate3d-icon {
+    font-size: 1.6rem;
+    color: var(--accent);
+    margin-bottom: 0.5rem;
+  }
+  .gate3d h1 {
+    font-size: 1.35rem;
+    font-weight: 400;
+    margin: 0;
+    line-height: 1.25;
+  }
+  .gate3d-day {
+    margin: 0.3rem 0 0;
     color: var(--muted);
-    font-variant-numeric: tabular-nums;
+    font-size: 0.9rem;
   }
-  .loading3d.error .loading3d-step {
-    color: #c62828;
+  .gate3d-copy {
+    margin: 1rem 0 1.4rem;
+    color: var(--text);
+    line-height: 1.5;
   }
-  @keyframes loading3d-spin {
-    to {
-      transform: rotate(360deg);
-    }
+  /* .account-btn is styled for <button>; as a link it needs these two. */
+  .gate3d-btn {
+    display: inline-block;
+    text-decoration: none;
+  }
+  .gate3d-back {
+    display: block;
+    margin-top: 1.2rem;
+    font-size: 0.85rem;
+    color: var(--muted);
+    text-decoration: none;
+  }
+  .gate3d-back:hover,
+  .gate3d-back:focus-visible {
+    color: var(--accent);
+    text-decoration: underline;
   }
 
   /* Bottom dock holding the shared altitude-plot scrubber. */
@@ -150,23 +233,164 @@ const clientEntry = { base, label: heading, utcOffsetMinutes: entry.utcOffsetMin
     margin-top: 0;
   }
 
-  .panel3d {
-    grid-area: panel;
+  /* ---- side docks (dock3d.ts) ------------------------------------------- */
+  /* Registering the two column widths is what makes them animatable: an
+     unregistered custom property is just a token and jumps. dock3d.ts writes
+     them, the grid above consumes them, and the transition below carries a dock
+     open or shut instead of snapping it. */
+  @property --dock-left {
+    syntax: '<length>';
+    inherits: true;
+    initial-value: 320px;
+  }
+  @property --dock-right {
+    syntax: '<length>';
+    inherits: true;
+    initial-value: 320px;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .viewer3d {
+      transition:
+        --dock-left 220ms ease,
+        --dock-right 220ms ease;
+    }
+    /* A drag is direct manipulation: the edge belongs under the pointer, not
+       220ms behind it. */
+    .viewer3d.dock-dragging {
+      transition: none;
+    }
+    /* Phones: the panel slides up out of the tab row, which doesn't move. */
+    .viewer3d.compact .dock-body {
+      transition:
+        height 220ms ease,
+        padding-top 220ms ease,
+        padding-bottom 220ms ease;
+    }
+  }
+
+  .dock {
+    position: relative;
     display: flex;
     flex-direction: column;
+    min-width: 0;
     min-height: 0;
     background: #fff;
-    border-right: 1px solid rgba(0, 0, 0, 0.12);
-    padding: 0.75rem 0.9rem;
     font-size: 0.85rem;
   }
-  .panel3d-head {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 0.5rem;
+  .dock[hidden] {
+    display: none;
   }
-  .panel3d h1 {
+  .dock-left {
+    grid-area: left;
+    border-right: 1px solid rgba(0, 0, 0, 0.12);
+  }
+  .dock-right {
+    grid-area: right;
+    border-left: 1px solid rgba(0, 0, 0, 0.12);
+  }
+  /* Thin bar carrying the collapse toggle, and whatever link belongs to that
+     side. Survives collapsing — it's what you click to get the dock back. */
+  .dock-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.3rem 0.35rem 0.15rem;
+    min-height: 1.65rem;
+  }
+  .dock-left .dock-bar {
+    padding-left: 0.9rem;
+  }
+  .dock-right .dock-bar {
+    padding-right: 0.9rem;
+  }
+  .dock-left .backlink {
+    margin-right: auto;
+  }
+  .dock-right .dock-account {
+    margin-left: auto;
+  }
+  .dock.collapsed .dock-bar > :not(.dock-toggle) {
+    display: none;
+  }
+  .dock-toggle {
+    flex: none;
+    width: 1.35rem;
+    height: 1.35rem;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border: 1px solid rgba(0, 0, 0, 0.18);
+    border-radius: 5px;
+    background: #fff;
+    color: var(--muted);
+    font: inherit;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .dock-toggle:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+  /* Sideways title down the rail, so a collapsed dock still says what it is. */
+  .dock-rail-label {
+    display: none;
+    writing-mode: vertical-rl;
+    margin: 0.5rem auto 0;
+    color: var(--muted);
+    font-size: 0.78rem;
+    letter-spacing: 0.04em;
+    user-select: none;
+  }
+  .dock.collapsed .dock-rail-label {
+    display: block;
+  }
+  .dock-body {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    padding: 0.2rem 0.9rem 0.75rem;
+    overflow: hidden;
+    /* Sizing context for the pilot rows: they answer to the dock's width, which
+       is dragged and screen-dependent, not to the viewport's. */
+    container-type: inline-size;
+  }
+  .dock.collapsed .dock-body {
+    display: none;
+  }
+  /* Resize handle on the map-facing edge. */
+  .dock-grip {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 7px;
+    z-index: 2;
+    cursor: col-resize;
+  }
+  .dock-left .dock-grip {
+    right: 0;
+  }
+  .dock-right .dock-grip {
+    left: 0;
+  }
+  .dock-grip:hover {
+    background: rgba(112, 90, 144, 0.25);
+  }
+  .dock.collapsed .dock-grip {
+    display: none;
+  }
+  .dock-account a {
+    font-size: 0.8rem;
+    white-space: nowrap;
+    color: var(--muted);
+    text-decoration: none;
+  }
+  .dock-account a:hover {
+    color: var(--accent);
+    text-decoration: underline;
+  }
+  .dock h1 {
     font-size: 0.98rem;
     font-weight: 500;
     margin: 0 0 0.15rem;
@@ -175,6 +399,12 @@ const clientEntry = { base, label: heading, utcOffsetMinutes: entry.utcOffsetMin
   .backlink {
     white-space: nowrap;
     font-size: 0.8rem;
+    color: var(--muted);
+    text-decoration: none;
+  }
+  .backlink:hover {
+    color: var(--accent);
+    text-decoration: underline;
   }
   .status3d {
     color: #6b655c;
@@ -250,5 +480,398 @@ const clientEntry = { base, label: heading, utcOffsetMinutes: entry.utcOffsetMin
   }
   .pilot-list li.pinned .nm {
     font-weight: 500;
+  }
+
+  /* A narrow dock — dragged in, or a phone sheet — can't hold six columns, and
+     six columns of nothing is worse than four that read. Height and speed go;
+     rank, colour, name and altitude stay. Column 4 is the altitude stat, 5 and 6
+     the climb rate and speed (see the row built in track3d.ts). */
+  @container (max-width: 280px) {
+    .pilot-list li {
+      grid-template-columns: 1.6em 1.15em minmax(0, 1fr) 3.4em;
+    }
+    .pilot-list li > :nth-child(5),
+    .pilot-list li > :nth-child(6) {
+      display: none;
+    }
+  }
+
+  /* Half a phone screen. Altitude goes too — a row that can't name its pilot
+     isn't telling you anything. */
+  @container (max-width: 205px) {
+    .pilot-list li {
+      grid-template-columns: 1.6em 1.15em minmax(0, 1fr);
+    }
+    .pilot-list li > :nth-child(4) {
+      display: none;
+    }
+  }
+
+  /* ---- notes (annotations3d.ts) ----------------------------------------- */
+  /* Fills the right dock; the list scrolls, the head and composer don't. */
+  .notes3d {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+  }
+  .notes3d-head {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    flex-wrap: wrap;
+  }
+  .notes3d-title {
+    font-weight: 500;
+    margin-right: auto;
+  }
+  .notes3d-head button {
+    font: inherit;
+    font-size: 0.78rem;
+    padding: 0.15rem 0.45rem;
+    border: 1px solid rgba(0, 0, 0, 0.2);
+    border-radius: 6px;
+    background: #fff;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .notes3d-head button:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .notes3d-status {
+    margin: 0.3rem 0 0;
+    font-size: 0.78rem;
+    color: var(--muted);
+    line-height: 1.35;
+  }
+  .notes3d-status:empty {
+    display: none;
+  }
+  .notes3d-status.error {
+    color: #9b2c2c;
+  }
+  .notes3d-list {
+    list-style: none;
+    margin: 0.4rem 0 0;
+    padding: 0;
+    overflow-y: auto;
+    min-height: 0;
+  }
+  .notes3d-empty {
+    color: var(--muted);
+    font-size: 0.8rem;
+    line-height: 1.4;
+  }
+  .note-row {
+    display: grid;
+    grid-template-columns: 1.5em minmax(0, 1fr);
+    gap: 0.45rem;
+    padding: 0.3rem 0.25rem;
+    border-radius: 5px;
+    cursor: pointer;
+  }
+  .note-row:hover {
+    background: rgba(0, 0, 0, 0.035);
+  }
+  .note-row.focused {
+    background: rgba(112, 90, 144, 0.16);
+  }
+  /* The note's pilot has no track on this day — it can be read and deleted, but
+     there is nowhere to draw it. */
+  .note-row.orphan .note-meta {
+    text-decoration: line-through;
+  }
+  .note-index {
+    justify-self: start;
+    min-width: 1.5em;
+    padding: 0.05rem 0;
+    border-radius: 4px;
+    color: #fff;
+    font-size: 0.72rem;
+    text-align: center;
+    line-height: 1.5;
+  }
+  .note-meta {
+    color: var(--muted);
+    font-size: 0.75rem;
+    font-variant-numeric: tabular-nums;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .note-body {
+    font-size: 0.82rem;
+    line-height: 1.4;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .note-actions {
+    display: none;
+    gap: 0.3rem;
+    margin-top: 0.2rem;
+  }
+  .note-row:hover .note-actions,
+  .note-row.focused .note-actions {
+    display: flex;
+  }
+  .note-btn {
+    font: inherit;
+    font-size: 0.72rem;
+    padding: 0.1rem 0.4rem;
+    border: 1px solid rgba(0, 0, 0, 0.18);
+    border-radius: 5px;
+    background: #fff;
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .note-btn:hover:not(:disabled) {
+    color: var(--text);
+    border-color: var(--accent);
+  }
+  .note-btn.danger:hover:not(:disabled) {
+    color: #9b2c2c;
+    border-color: #9b2c2c;
+  }
+  .note-compose {
+    margin-top: 0.45rem;
+    padding: 0.5rem;
+    border: 1px solid var(--accent);
+    border-radius: 7px;
+    background: rgba(112, 90, 144, 0.06);
+  }
+  .note-compose-head {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.78rem;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .note-dot {
+    width: 0.6em;
+    height: 0.6em;
+    border-radius: 50%;
+    flex: none;
+  }
+  /* Says that the moment isn't locked in — scrubbing while this is open moves it. */
+  .note-compose-hint {
+    margin: 0.3rem 0 0;
+    color: var(--muted);
+    font-size: 0.72rem;
+    line-height: 1.35;
+  }
+  .note-compose-text {
+    width: 100%;
+    margin-top: 0.35rem;
+    padding: 0.4rem 0.5rem;
+    border: 1px solid rgba(0, 0, 0, 0.2);
+    border-radius: 6px;
+    font: inherit;
+    font-size: 0.82rem;
+    resize: vertical;
+  }
+  .note-compose-text:focus-visible {
+    outline: none;
+    border-color: var(--accent);
+  }
+  .note-compose-actions {
+    display: flex;
+    gap: 0.4rem;
+    margin-top: 0.35rem;
+  }
+
+  /* ---- phones (dock3d.ts adds .compact below the same breakpoint) --------
+     A dock wide enough to read costs more width than a phone can spare, so the
+     docks give up their columns and become drawers up from the bottom of the
+     map: full width, one at a time, closing to a tab in a bottom corner. Both
+     move into the map cell rather than going position:absolute, which is what
+     keeps them inside the map row — the scrubber below is the one control that
+     must never be covered. */
+  @media (max-width: 700px) {
+    /* Not gated on .compact: the way out of the viewer shouldn't wait on the
+       dock script having run. */
+    .viewer3d-top {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      padding: 0.4rem 0.75rem;
+      background: #fff;
+      border-bottom: 1px solid rgba(0, 0, 0, 0.12);
+    }
+    .viewer3d-top .dock-account {
+      margin-left: auto;
+    }
+    /* The header carries these on phones, so the dock-bar copies are noise. */
+    .viewer3d.compact .dock-bar .backlink,
+    .viewer3d.compact .dock-bar .dock-account {
+      display: none;
+    }
+    /* Each dock is a tab on the map's bottom edge — half the width each, always
+       there, open or shut. Opening doesn't move the tab; it grows the panel out
+       from behind the tab row. */
+    .viewer3d.compact .dock {
+      --drawer-h: min(50vh, 30rem);
+      --tab-h: 2.6rem;
+      grid-area: map;
+      align-self: end;
+      flex-direction: row;
+      align-items: center;
+      justify-content: center;
+      width: 50%;
+      height: var(--tab-h);
+      z-index: 8;
+      /* Only the top edge and the seam between the two tabs are borders worth
+         drawing: a side border against the screen edge reads as a stray line of
+         background down the outside of the bar. */
+      border: none;
+      border-top: 1px solid rgba(0, 0, 0, 0.14);
+      /* The tab itself opens and shuts the drawer (dock3d.ts) — the chevron is
+         a label for that, not the only way in. */
+      cursor: pointer;
+    }
+    /* A shut tab sits above the open one's panel, so the way across is never
+       buried — the two together always read as one bar. */
+    .viewer3d.compact .dock.collapsed {
+      z-index: 9;
+    }
+    .viewer3d.compact .dock-left {
+      justify-self: start;
+      border-right: 1px solid rgba(0, 0, 0, 0.14);
+    }
+    /* The seam is the left tab's right edge alone — both sides drawing it would
+       double the line where they meet. */
+    .viewer3d.compact .dock-right {
+      justify-self: end;
+      border-left: none;
+    }
+
+    /* The panel itself: full width, anchored to the top edge of its own tab, and
+       painted behind the tab row it slides out of (z-index below the parent's
+       own background). Closing collapses it to nothing rather than hiding it, so
+       the two directions animate alike. */
+    .viewer3d.compact .dock-body {
+      position: absolute;
+      bottom: 100%;
+      /* Full bleed from the tab's own edge. 200% is the tab's half of the map
+         doubled — exact whatever 100vw counts (scrollbar, visual viewport) —
+         and the vw term is the floor in case the map row is ever inset. The
+         overflow past the far edge is over the globe, which is the point. */
+      width: max(100vw, 200%);
+      height: var(--drawer-h);
+      z-index: -1;
+      background: #fff;
+      /* The tab is a control and says so; the drawer it opened is not. */
+      cursor: auto;
+      /* Edge to edge, so only the top edge is a border anyone can see. */
+      border: none;
+      border-top: 1px solid rgba(0, 0, 0, 0.14);
+    }
+    .viewer3d.compact .dock-left .dock-body {
+      left: 0;
+    }
+    .viewer3d.compact .dock-right .dock-body {
+      right: 0;
+    }
+    .viewer3d.compact .dock.collapsed .dock-body {
+      display: flex; /* beats the shared "collapsed hides the body" rule */
+      height: 0;
+      padding-top: 0;
+      padding-bottom: 0;
+      border-top-width: 0;
+    }
+    /* What's above the pilot list is header, and half a phone screen has none to
+       spare: the day gets one line, and the status note gets one — enough for
+       "Top 20 of 139 pilots", which is the part you can't get elsewhere. */
+    .viewer3d.compact .dock h1 {
+      font-size: 0.92rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .viewer3d.compact .status3d {
+      font-size: 0.75rem;
+      line-height: 1.3;
+      max-height: 1.3em;
+      overflow: hidden;
+      margin: 0.2rem 0 0.4rem;
+    }
+    /* The tab says what it is whether it's open or shut. Sideways made sense
+       down a rail; across a tab it doesn't. */
+    .viewer3d.compact .dock-rail-label {
+      display: block;
+      writing-mode: horizontal-tb;
+      margin: 0;
+      font-size: 0.82rem;
+    }
+    /* Which one you're in, without a second glance. */
+    .viewer3d.compact .dock:not(.collapsed) .dock-rail-label {
+      color: var(--text);
+      font-weight: 500;
+    }
+    /* Nothing to drag when the size is the screen's decision, and the handle
+       would eat swipes meant for the globe. */
+    .viewer3d.compact .dock-grip {
+      display: none;
+    }
+    /* The whole tab is the hit area (dock3d.ts); the chevron only has to say
+       which way it goes — a box around it would read as a second control. */
+    .viewer3d.compact .dock-toggle {
+      width: 2.2rem;
+      height: 2.2rem;
+      border: none;
+      border-radius: 0;
+      background: none;
+      /* With no box around it, .dock's 0.85rem would draw a chevron too small
+         to read as the thing you press. */
+      font-size: 1.3rem;
+    }
+    .viewer3d.compact .dock-toggle:hover {
+      border-color: transparent;
+    }
+    .viewer3d.compact .dock-bar {
+      gap: 0.35rem;
+      padding: 0;
+      min-height: 0;
+    }
+    .viewer3d.compact .dock-body {
+      font-size: 0.9rem;
+      padding: 0.5rem 0.75rem 0.6rem;
+    }
+
+    /* Scrubber: the map is the point of the page, so the chart gives up height
+       (and the play row is allowed to wrap under it on the narrowest screens). */
+    .viewer3d-bottom {
+      padding: 0.3rem 0.6rem 0.45rem;
+    }
+    .viewer3d-bottom .time-slider {
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-top: 0.35rem;
+    }
+    /* Buys back most of the width the chart selector costs, so play · speed ·
+       selector · clock still make one row on a phone. */
+    .viewer3d-bottom .time-slider-speed {
+      width: 68px;
+    }
+    .viewer3d-bottom .chart-dock {
+      margin-top: 0.45rem;
+    }
+    .viewer3d-bottom .chart-dock-body {
+      height: clamp(96px, 24vh, 170px);
+    }
+    .viewer3d-bottom .alt-plot-title {
+      font-size: 0.75rem;
+      margin-bottom: 0.25rem;
+    }
+    .viewer3d-bottom .chart-toggle-btn {
+      font-size: 0.72rem;
+      padding: 0.2rem 0.5rem;
+    }
+    /* Taller grab area for a finger; the pill itself stays the same size. */
+    .viewer3d-bottom .chart-dock-grip {
+      height: 14px;
+      margin: 0;
+    }
   }
 </style>

@@ -12,3 +12,5 @@ public/cesium/
 # Local Python prototyping (analysis/progress_prototype.py) + its generated output
 .venv-proto/
 analysis_out/
+
+__pycache__/

@@ -1,0 +1,87 @@
+---
+// Account page. Everything here is client-rendered: the site is static, so
+// there is no server to know who is signed in. src/scripts/account.ts fills it.
+import Base from '../layouts/Base.astro';
+---
+
+<Base title="Account — Comp Tracklog Analysis">
+  <header class="hero">
+    <h1>Account</h1>
+    <!-- A pitch for signing in; account.ts drops it once you have. -->
+    <p id="account-tagline">Sign in to view in 3D, claim results, and annotate flights.</p>
+  </header>
+
+  <main>
+    <section class="card account-card" id="account-unconfigured" hidden>
+      <h2>Accounts are off</h2>
+      <p class="field-hint">
+        This build has no Supabase credentials. Set <code>PUBLIC_SUPABASE_URL</code> and
+        <code>PUBLIC_SUPABASE_ANON_KEY</code> (see <code>.env.example</code>) and rebuild.
+      </p>
+    </section>
+
+    <section class="card account-card" id="account-loading">
+      <p class="field-hint">Checking your session…</p>
+    </section>
+
+    <section class="card account-card" id="account-signed-out" hidden>
+      <h2>Sign In / Sign Up</h2>
+      <p class="field-hint">
+        Enter your email and we'll send a sign-in link. Look for an email from "Supabase Auth".
+      </p>
+      <form id="signin-form" class="account-form">
+        <label class="field-label" for="signin-email">Email</label>
+        <input id="signin-email" type="email" name="email" required autocomplete="email"
+          placeholder="you@example.com" />
+        <button id="signin-submit" type="submit" class="account-btn">Email me a link</button>
+      </form>
+      <p id="signin-status" class="form-status" role="status" aria-live="polite"></p>
+    </section>
+
+    <section class="card account-card" id="account-signed-in" hidden>
+      <h2>Your flights</h2>
+      <p class="field-hint">
+        Claim your name in the archive and your tasks are listed here. The archive can't work
+        this out on its own — entry numbers change between comps, so only the name links them.
+      </p>
+
+      <div id="claims-list" class="claims-list"></div>
+      <p id="claims-status" class="form-status" role="status" aria-live="polite"></p>
+
+      <form id="claim-form" class="account-form claim-search">
+        <label class="field-label" for="claim-query">Find your results</label>
+        <input id="claim-query" type="search" autocomplete="off" placeholder="Type your name as it appears on comp trackers" />
+      </form>
+      <div id="claim-results" class="claim-results"></div>
+
+      <!-- Notes you've left on flights you haven't claimed. Stays hidden until
+           account-claims.ts finds any. -->
+      <div id="annotated-section" hidden>
+        <div class="account-divider"></div>
+        <h3>Annotated Flights</h3>
+        <div id="annotated-list" class="claims-list"></div>
+      </div>
+
+      <div class="account-divider"></div>
+
+      <h3>Account</h3>
+      <p class="field-hint">Signed in as <span id="account-email" class="account-email"></span></p>
+
+      <form id="name-form" class="account-form">
+        <label class="field-label" for="display-name">Username</label>
+        <input id="display-name" type="text" name="display_name" maxlength="60"
+          autocomplete="name" placeholder="How your name appears on annotations" />
+        <button type="submit" class="account-btn">Save</button>
+      </form>
+      <p id="name-status" class="form-status" role="status" aria-live="polite"></p>
+
+      <div class="account-actions">
+        <button id="sign-out" type="button" class="account-btn ghost">Sign out</button>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    import '../scripts/account';
+  </script>
+</Base>

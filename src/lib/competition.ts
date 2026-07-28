@@ -45,17 +45,17 @@ export const COMP_SUBSET: { key: string; dir: GradientDir; label: string }[] = [
 const CLIMB_RATE_LABELS = ['1ms', '2ms', '3ms', '4ms', '5ms', '>5ms'];
 export const CLIMB_RATE_TICKS = ['1 m/s', '2 m/s', '3 m/s', '4 m/s', '5 m/s', '>5 m/s'];
 
-// Final-glide height cap on the time-to-go metric. Height is credited (at 1/M) only
-// up to what's needed to glide to goal, h_need = h_fin + D_rem·g (g = 1/ratio);
-// surplus above that slope is worth `FINAL_GLIDE_BETA` of the normal rate (0 =
-// nothing). Above the slope the pilot is "on final glide" — the altitude-is-useless
-// regime the chart and 3D track highlight.
-const FINAL_GLIDE_RATIO = 7; // glide gradient; g = 1/7
-const FINAL_GLIDE_BETA = 0.05; // surplus-height discount [0,1]
-// Physical final-glide ground-speed cap (km/h). τ is floored at D_rem/this so the
-// on-slope credit can't imply a superhuman glide — the MacCready-inverted glide
-// speed V_cc·M/(M − g·V_cc) diverges at paraglider glide ratios. See timetogo.ts.
-const FINAL_GLIDE_SPEED_KMH = 60;
+// Time Lost glide parameters. Vg (ground speed while gliding) and g (ground
+// glide ratio, ≡ Vg/sink) are MEASURED per day from the par pilots' gliding
+// fixes — see measureGlide() — like M already is from their climbs. These
+// constants are only the fallback for a day too sparse to measure (and the
+// sink threshold that classifies a fix as gliding).
+const DEFAULT_GLIDE_SPEED_KMH = 60;
+const DEFAULT_GLIDE_RATIO = 7;
+/** A fix is gliding when smoothed dh/dt < −this (m/s); climbing when > +this. */
+const GLIDE_SINK_THRESHOLD_MPS = 0.3;
+/** Don't trust Vg/g measured from less than this much total gliding. */
+const MIN_GLIDE_SAMPLE_S = 600;
 
 export interface PilotRow {
   name: string;
@@ -88,12 +88,12 @@ export interface MapTrack {
   times: number[];
   /** GPS altitude (m) for each point, aligned with `points`. */
   alt: number[];
-  /** Time-to-go at par (minutes) at each point, aligned with `points`; absent if
+  /** Time Lost at par (minutes) at each point, aligned with `points`; absent if
    * the day has no usable ESS/finisher data. See timetogo.ts. */
   tau?: number[];
   /** Epoch-ms of the ESS crossing (scored completion), or null if not a finisher. */
   completionMs?: number | null;
-  /** Epoch-ms of the SSS crossing (scored start); the time-to-go plot cuts the
+  /** Epoch-ms of the SSS crossing (scored start); the Time Lost plot cuts the
    * pre-start hold off before this. Null falls back to drawing from the first fix. */
   startCrossMs?: number | null;
   /** Per fix: is the pilot above the glide slope (on final glide = "altitude is
@@ -108,17 +108,28 @@ export interface MapData {
   utcOffsetMinutes: number | null;
   /** Epoch-ms of the SSS start gate (for the start-time marker); null if unknown. */
   startMs: number | null;
-  /** Day-level par constants for the time-to-go chart; null if unavailable.
-   * `tauRef` is the common par-ghost anchor (minutes): the par pilot's time-to-go
-   * from the start, `(dTask/Vcc − (hRef − hFin)/M)/60`. See timetogo.ts `lostSeries`;
-   * L(t) = tau(t) + (t − t_gate)/60 − tauRef is "minutes behind the par ghost". */
+  /** Day-level par constants for the Time Lost chart; null if unavailable.
+   * `tauRef` is the common par-ghost anchor (minutes): the par pilot's Time Lost
+   * from the start, tauSeries evaluated at (dTask, hRef). See timetogo.ts
+   * `lostSeries`; L(t) = tau(t) + (t − t_gate)/60 − tauRef is "minutes behind
+   * the par ghost". */
   timeToGo: {
     M: number;
+    /** Par pace over the whole course (m/s) — a day stat; τ derives its own
+     * pace from Vg, g and M. */
     Vcc: number;
+    /** Par ground speed while gliding (m/s), measured from the par pilots. */
+    Vg: number;
+    /** Par ground glide ratio (course metres per metre of height), ≡ Vg/sink. */
+    g: number;
+    /** Model→reality pace fit: actual median par duration ÷ raw two-phase τ at
+     * the reference start. τ and tauRef ship pre-multiplied by this; it is
+     * carried so the scaling is auditable. */
+    pace: number;
     hFin: number;
     dTask: number; // optimised task distance SSS→ESS (m)
     hRef: number; // reference start altitude (fleet-median start-gate crossing, m MSL)
-    tauRef: number; // D_task/Vcc/60 − (hRef − hFin)/M/60, minutes
+    tauRef: number; // tauSeries(dTask, hRef): dTask/Vg/60 + max(0, dTask/g − (hRef−hFin))/M/60
   } | null;
 }
 
@@ -240,7 +251,33 @@ export class Competition {
     this.utcOffsetMinutes = utcOffsetMinutes;
   }
 
-  /** Parse an IGC file, compute competition metrics, and register the pilot. */
+  /**
+   * Rank two tracklogs for the same pilot on the same day, higher is better.
+   *
+   * A pilot can appear more than once in a day's files — a partial upload
+   * alongside the real flight (Mike Steed's chelan-us-open day 1 pair is a
+   * 344-byte stub next to a 126 km flight), or the same flight logged by two
+   * instruments. Reaching goal beats not reaching it; otherwise the track that
+   * covers more of the task is the more complete recording.
+   */
+  private static trackScore(row: PilotRow): [number, number] {
+    const distance = Number(row.stats.comp_total_distance);
+    return [row.completed ? 1 : 0, Number.isFinite(distance) ? distance : -1];
+  }
+
+  private static isBetter(candidate: PilotRow, incumbent: PilotRow): boolean {
+    const [ac, ad] = Competition.trackScore(candidate);
+    const [bc, bd] = Competition.trackScore(incumbent);
+    return ac !== bc ? ac > bc : ad > bd;
+  }
+
+  /**
+   * Parse an IGC file, compute competition metrics, and register the pilot.
+   *
+   * If this pilot already has a track for the day, the better of the two is
+   * kept (see trackScore) and the other discarded — one row per pilot, so the
+   * stats table, charts and map don't show the same person twice.
+   */
   addPilot(igcText: string, fallbackName: string): PilotRow {
     const flight = new IgcFlight(igcText, fallbackName);
     flight.buildCompMetrics(this.task);
@@ -255,8 +292,19 @@ export class Competition {
       // unaffected — they still run over the full flight above.
       ...cropAndDownsample(flight, this.task),
     };
-    this.pilots.push(row);
-    return row;
+
+    const existingIdx = this.pilots.findIndex((p) => p.name === row.name);
+    if (existingIdx === -1) {
+      this.pilots.push(row);
+      return row;
+    }
+
+    const existing = this.pilots[existingIdx];
+    if (Competition.isBetter(row, existing)) {
+      this.pilots[existingIdx] = row;
+      return row;
+    }
+    return existing;
   }
 
   // ---- map view ----------------------------------------------------------
@@ -271,12 +319,14 @@ export class Competition {
       order: tp.order,
     }));
 
-    // Time-to-go: par constants from the results, then a τ series per track. See
+    // Time Lost: par constants from the results, then a τ series per track. See
     // timetogo.ts. Guarded so a task without a usable ESS/finishers just omits it.
     const geom = buildGeom(turnpoints);
     const taskDist = geom.cx.length >= 2 ? taskDistanceM(geom) : 0;
     // Par is measured from the day's fastest PAR_N finishers: M = median climb,
-    // V_cc = optimised task dist ÷ median completion. h_fin = min crossing altitude.
+    // V_cc = optimised task dist ÷ median completion (a day stat — τ derives its
+    // own pace from Vg/g/M plus the pace fit below). h_fin = min crossing
+    // altitude across ALL finishers.
     const PAR_N = 10;
     const finishers = this.pilots
       .filter((p) => p.completed && num(p.stats.completion_time) > 0)
@@ -314,14 +364,58 @@ export class Competition {
       });
 
     // Ghost anchor: h_ref = fleet-median smoothed altitude at the SSS exit;
-    // tau_ref = par time-to-go from the start (one common value). See lostSeries.
+    // tau_ref = par Time Lost from the start (one common value). See lostSeries.
     const startExitAlts = perPilot
       .map((c) => c.startExitAlt)
       .filter((v): v is number => v != null && Number.isFinite(v));
     const hRef = startExitAlts.length ? median(startExitAlts) : hFin;
-    const tauRef = hasTau && Vcc > 0 ? (taskDist / Vcc - (hRef - hFin) / M) / 60 : 0;
 
-    const gSlope = 1 / FINAL_GLIDE_RATIO;
+    // Par glide pace, measured the way M already is: over the par pilots' scored
+    // fixes, a fix sinking faster than the threshold is gliding; Vg is their
+    // course progress per second of that, and g their course metres per metre of
+    // height spent (g ≡ Vg/sink by construction, which is what makes par gliding
+    // exactly neutral in tauSeries). Sparse days fall back to the constants.
+    const parSet = new Set<PilotRow>(par);
+    let glideCourseM = 0;
+    let glideDropM = 0;
+    let glideTimeS = 0;
+    if (hasTau) {
+      for (const { p, rem, h, startCrossMs } of perPilot) {
+        if (!parSet.has(p) || startCrossMs == null) continue;
+        const ct = num(p.stats.completion_time);
+        const endMs =
+          Number.isFinite(ct) && p.startGateMs != null ? p.startGateMs + ct * 1000 : Infinity;
+        for (let i = 1; i < p.trackTimes.length; i++) {
+          if (p.trackTimes[i] < startCrossMs || p.trackTimes[i] > endMs) continue;
+          const dt = (p.trackTimes[i] - p.trackTimes[i - 1]) / 1000;
+          if (dt <= 0 || dt > 30) continue; // track gap — rates across it mean nothing
+          const dh = h[i] - h[i - 1];
+          if (dh / dt >= -GLIDE_SINK_THRESHOLD_MPS) continue;
+          glideCourseM += rem[i - 1] - rem[i];
+          glideDropM += -dh;
+          glideTimeS += dt;
+        }
+      }
+    }
+    const glideMeasured =
+      glideTimeS >= MIN_GLIDE_SAMPLE_S && glideCourseM > 0 && glideDropM > 0;
+    const Vg = glideMeasured ? glideCourseM / glideTimeS : DEFAULT_GLIDE_SPEED_KMH / 3.6;
+    const g = glideMeasured ? glideCourseM / glideDropM : DEFAULT_GLIDE_RATIO;
+
+    const tauParams = { glideMps: Vg, glideRatio: g, climbMps: M, hFinM: hFin };
+    // Pace fit. The two-phase model prices only climbing and gliding, but real
+    // par flying also makes ground WHILE climbing (thermal drift) and while
+    // porpoising a line at constant height — so the raw model runs slower than
+    // the day it describes, and against it every pilot trends steadily ahead:
+    // a par line sloping down instead of horizontal. One measured ratio pins
+    // it: scale τ so the ghost's time from the reference start state equals the
+    // par pilots' actual median gate→ESS duration. tauRef then IS that median
+    // duration, the par line is horizontal by construction, and a finisher's
+    // final L reads as literal minutes behind the median winner.
+    const tauRefRaw = hasTau ? tauSeries([taskDist], [hRef], tauParams)[0] : 0;
+    const pace = tauRefRaw > 0 && medComp > 0 ? medComp / 60 / tauRefRaw : 1;
+    const tauRef = tauRefRaw * pace;
+
     const tracks: MapTrack[] = perPilot.map(({ p, rem, h, startCrossMs }) => {
       const base: MapTrack = {
         pilot: p.name,
@@ -331,15 +425,8 @@ export class Competition {
         alt: p.trackAlt,
       };
       if (!hasTau) return base;
-      base.tau = tauSeries(rem, h, {
-        vccMps: Vcc,
-        climbMps: M,
-        hFinM: hFin,
-        glideRatio: FINAL_GLIDE_RATIO,
-        beta: FINAL_GLIDE_BETA,
-        glideSpeedKmh: FINAL_GLIDE_SPEED_KMH,
-      }).map((v) => Math.round(v * 100) / 100);
-      base.finalGlide = rem.map((d, i) => h[i] > hFin + d * gSlope);
+      base.tau = tauSeries(rem, h, tauParams).map((v) => Math.round(v * pace * 100) / 100);
+      base.finalGlide = rem.map((d, i) => h[i] > hFin + d / g);
       const ct = num(p.stats.completion_time);
       base.completionMs =
         p.completed && Number.isFinite(ct) && p.startGateMs != null ? p.startGateMs + ct * 1000 : null;
@@ -355,7 +442,7 @@ export class Competition {
       tracks,
       utcOffsetMinutes: this.utcOffsetMinutes,
       startMs,
-      timeToGo: hasTau ? { M, Vcc, hFin, dTask: taskDist, hRef, tauRef } : null,
+      timeToGo: hasTau ? { M, Vcc, Vg, g, pace, hFin, dTask: taskDist, hRef, tauRef } : null,
     };
   }
 

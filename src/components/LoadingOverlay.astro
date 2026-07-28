@@ -1,0 +1,93 @@
+---
+/**
+ * Full-cover loading screen: spinner, what's loading, and a step line the page
+ * script advances (see scripts/loading-overlay.ts). Server-rendered so it is up
+ * before any script runs, and removed once the page has something to show.
+ *
+ * Shared by the 3D viewer and the archived analysis page — both spend a few
+ * seconds fetching a large JSON before there is anything worth looking at, and
+ * they should spend them the same way.
+ */
+interface Props {
+  /** What's loading — the day's heading on both pages that use this. */
+  title: string;
+  /** First step message, replaced as the page script gets further. */
+  step: string;
+}
+
+const { title, step } = Astro.props;
+---
+
+<div id="loading" class="loading">
+  <div class="loading-box">
+    <div class="loading-spinner" aria-hidden="true"></div>
+    <div class="loading-title">{title}</div>
+    {/* Live region, like every other status line on the site: the step is the
+        only thing that changes while this screen is up. */}
+    <div id="loading-step" class="loading-step" role="status" aria-live="polite">{step}</div>
+  </div>
+</div>
+
+{/* Only a script ever takes this down, so without one it would cover the page
+    for good. What's behind it is at least readable and navigable. */}
+<noscript>
+  <style is:inline>
+    #loading {
+      display: none;
+    }
+  </style>
+</noscript>
+
+<style>
+  .loading {
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+    display: grid;
+    place-items: center;
+    background: var(--bg, #e7e7e7);
+    transition: opacity 0.55s ease;
+  }
+  .loading.hidden {
+    opacity: 0;
+    pointer-events: none;
+  }
+  .loading-box {
+    text-align: center;
+    padding: 1.5rem;
+    max-width: min(90vw, 30rem);
+  }
+  .loading-spinner {
+    width: 46px;
+    height: 46px;
+    margin: 0 auto 1.1rem;
+    border-radius: 50%;
+    border: 4px solid rgba(20, 12, 12, 0.15);
+    border-top-color: var(--accent);
+    animation: loading-spin 0.9s linear infinite;
+  }
+  /* Parked on an error: nothing is still happening, so the spinner shouldn't
+     say it is. */
+  .loading.error .loading-spinner {
+    display: none;
+  }
+  .loading-title {
+    font-size: 1.05rem;
+    font-weight: 500;
+    color: var(--text);
+    line-height: 1.3;
+  }
+  .loading-step {
+    margin-top: 0.4rem;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .loading.error .loading-step {
+    color: #c62828;
+  }
+  @keyframes loading-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+</style>

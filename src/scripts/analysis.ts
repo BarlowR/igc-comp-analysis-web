@@ -79,6 +79,25 @@ let charts: Chart[] = [];
 let map: L.Map | null = null;
 
 /**
+ * Hooks for page-level features that need to reach inside a rendered analysis
+ * without this module knowing about them. The archive day page uses them to put
+ * a "claim this result" control in the pinned pilot's breakdown panel and to
+ * pin the signed-in user's own result on load (see scripts/day-claim.ts).
+ */
+export interface RenderHooks {
+  /** Extra content for the pinned pilot's breakdown panel; null for none. */
+  pinnedExtra?: (pilot: string) => HTMLElement | null;
+  /** Called once per render, after the tables exist and can react to pinning. */
+  onReady?: (sel: Selection, pilots: string[]) => void;
+}
+
+let hooks: RenderHooks = {};
+
+export function setRenderHooks(next: RenderHooks): void {
+  hooks = next;
+}
+
+/**
  * Render precomputed (server-built) results for an archived day. No IGC parsing
  * or analysis happens on the client — it just draws the stored table/climb/map.
  */
@@ -232,7 +251,10 @@ export function buildPilotSelection(
   for (const tr of mapData.tracks) push(tr.pilot);
 
   // With a large field, default to just the top 20 to keep the view manageable;
-  // otherwise select everyone.
+  // otherwise select everyone. Across the whole field, not per group: `ordered`
+  // lists finishers first, so on a day with 20+ finishers nobody in "Did Not
+  // Complete Task" is selected and that group's climb chart hides itself
+  // (syncChart) until you tick someone. That's intended.
   const TOP_N = 20;
   const TRUNCATE_ABOVE = 50;
   const truncated = ordered.length > TRUNCATE_ABOVE;
@@ -274,6 +296,14 @@ function render(
   if (table.incomplete.length || climb.incomplete.length) {
     resultsEl.appendChild(group('Did Not Complete Task', table, table.incomplete, false, climb.incomplete, sel, colors, timeLoss));
   }
+  // On the next frame, not synchronously: group() builds each chart and runs its
+  // first syncChart() while the card is still detached, so the chart has no size
+  // yet and its first paint lands only once the browser has attached and laid it
+  // out. A hook that changes the selection here — auto-pinning the signed-in
+  // pilot's result — re-enters chart.update() before that has happened, and the
+  // pending paint is dropped: correct dataset state, blank canvas.
+  const onReady = hooks.onReady;
+  if (onReady) requestAnimationFrame(() => onReady(sel, ordered));
   resultsEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
@@ -501,7 +531,8 @@ function initMap(holder: HTMLElement, data: MapData, sel: Selection, colors: Map
     }
   };
 
-  mountTimeline(holder, data, sel, colors, leafletFrame);
+  // Altitude only here; Time Lost is a 3D-view chart.
+  mountTimeline(holder, data, sel, colors, leafletFrame, undefined, { timeLost: false });
 }
 
 /**
@@ -511,8 +542,24 @@ function initMap(holder: HTMLElement, data: MapData, sel: Selection, colors: Map
  * draggable slider. The bar + plot are inserted right after `afterEl`.
  *
  * Shared by the 2D results page and the 3D viewer so both get the identical
- * control, colours and playback.
+ * control, colours and playback. `opts.timeLost` adds the Time Lost chart
+ * alongside altitude — the 3D viewer only; the 2D page shows altitude alone.
  */
+/** A moment worth flagging on the time axis — today, an annotation. */
+export interface TimeMarker {
+  timeMs: number;
+  /** Usually the annotated pilot's colour, so a tick keys to a track. */
+  color: string;
+}
+
+/** Handle onto a mounted scrubber, for callers that need to drive it. */
+export interface Timeline {
+  /** Jump the playhead to `ms` (stops playback, as a manual scrub does). */
+  seek(ms: number): void;
+  /** Replace the ticks drawn along the altitude plot's time axis. */
+  setMarkers(marks: TimeMarker[]): void;
+}
+
 export function mountTimeline(
   afterEl: HTMLElement,
   data: MapData,
@@ -520,7 +567,8 @@ export function mountTimeline(
   colors: Map<string, string>,
   frame: (t: number) => void,
   durationMs = 60_000,
-): void {
+  opts: { timeLost?: boolean } = {},
+): Timeline | null {
   // Global time span across every track (ignoring non-finite stamps).
   let tMin = Infinity;
   let tMax = -Infinity;
@@ -531,7 +579,7 @@ export function mountTimeline(
       if (t > tMax) tMax = t;
     }
   }
-  if (!Number.isFinite(tMin) || tMax <= tMin) return; // nothing to scrub
+  if (!Number.isFinite(tMin) || tMax <= tMin) return null; // nothing to scrub
 
   // This bar holds the play/pause button and the clock readout; the altitude
   // plot inserted after it is the actual draggable slider.
@@ -559,7 +607,7 @@ export function mountTimeline(
   speed.step = '0.001';
   speed.value = String(durToVal(sweepMs));
   speed.title = 'Playback speed';
-  speed.style.width = '100px';
+  speed.className = 'time-slider-speed'; // width lives in CSS: phones want it shorter
   speed.addEventListener('input', () => {
     sweepMs = valToDur(Number(speed.value));
   });
@@ -571,8 +619,8 @@ export function mountTimeline(
   fast.textContent = '🐇';
   speedWrap.append(slow, speed, fast);
 
-  // Chart selector (Altitude / Time-to-go) lives inline in this row, right of the
-  // speed slider; the clock is pushed to the far right.
+  // Chart selector lives inline in this row, right of the speed slider; the
+  // clock is pushed to the far right. It stays empty when there's only one plot.
   const toggleWrap = document.createElement('span');
   toggleWrap.className = 'chart-toggle';
   label.style.marginLeft = 'auto';
@@ -590,9 +638,10 @@ export function mountTimeline(
     render();
   };
 
-  // Chart dock below the bar: a toggle (Altitude / Time-to-go) over a resizable
-  // body holding whichever plot is active. Both plots share the time axis,
-  // colours, selection and scrubbing, and act as the slider.
+  // Chart dock below the bar: a toggle over a resizable body holding whichever
+  // plot is active. Altitude always; Time Lost only where the caller asks for it
+  // (the 3D viewer) and the day has the data. Every plot shares the time axis,
+  // colours, selection and scrubbing, and acts as the slider.
   const scrub = (ms: number): void => {
     stop(); // a manual scrub interrupts playback
     setTime(ms);
@@ -609,14 +658,25 @@ export function mountTimeline(
   bar.insertAdjacentElement('beforebegin', grip); // resize grip sits above the play row
 
   // Restore a user-set height (persisted across visits); CSS supplies the default.
+  // The store is shared with wider screens, where a comfortable chart is taller
+  // than a phone can give up — so cap it there rather than bury the map.
   const HKEY = 'chartDockHeight';
   const savedH = Number(localStorage.getItem(HKEY));
-  if (Number.isFinite(savedH) && savedH >= 120) body.style.height = `${savedH}px`;
+  const capH = window.innerWidth <= 700 ? window.innerHeight * 0.4 : Infinity;
+  if (Number.isFinite(savedH) && savedH >= 120) {
+    body.style.height = `${Math.round(Math.min(savedH, capH))}px`;
+  }
 
-  const drawAlt = createAltitudePlot(body, data, tMin, tMax, sel, colors, scrub);
-  const drawTtg = data.timeToGo ? createTimeToGoPlot(body, data, tMin, tMax, sel, colors, scrub) : null;
+  // Ticks on the time axis, owned by whoever called mountTimeline (the 3D
+  // viewer's annotations). Read live by the plot so setMarkers is just a redraw.
+  let markers: TimeMarker[] = [];
+  const drawAlt = createAltitudePlot(body, data, tMin, tMax, sel, colors, scrub, () => markers);
+  const drawTtg =
+    opts.timeLost !== false && data.timeToGo
+      ? createTimeToGoPlot(body, data, tMin, tMax, sel, colors, scrub)
+      : null;
   const plots: { label: string; draw: (t: number) => void }[] = [{ label: 'Altitude', draw: drawAlt }];
-  if (drawTtg) plots.push({ label: 'Time-to-go', draw: drawTtg });
+  if (drawTtg) plots.push({ label: 'Time Lost', draw: drawTtg });
   const wraps = Array.from(body.children) as HTMLElement[]; // one .alt-plot per plot, in order
 
   let active = 0;
@@ -733,6 +793,14 @@ export function mountTimeline(
   document.addEventListener('keydown', onKey);
 
   render();
+
+  return {
+    seek: scrub,
+    setMarkers(next) {
+      markers = next;
+      plots[active].draw(currentMs);
+    },
+  };
 }
 
 type MapTrack = MapData['tracks'][number];
@@ -777,13 +845,15 @@ function pointsUpTo(tr: MapTrack, t: number): [number, number][] {
 }
 
 /**
- * Epoch ms -> "HH:MM:SS" in task-local time. Fix times were built from the
- * IGC's UTC clock (so getHours() reads back UTC); `offsetMin` shifts that to the
- * competition's local time. Null offset displays UTC.
+ * Epoch ms -> "HH:MM:SS" in task-local time. Fix times are true UTC instants
+ * (see igc.ts), so the clock is read with the UTC accessors and shifted by
+ * `offsetMin` — the comp's offset for that date, carried in the manifest by
+ * whichever crawler imported the day. Neither the machine that built the
+ * archive nor the one reading it gets a say. Null offset displays UTC.
  */
-function formatClock(ms: number, offsetMin: number | null): string {
+export function formatClock(ms: number, offsetMin: number | null): string {
   const d = new Date(ms);
-  const utcSecs = d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds();
+  const utcSecs = d.getUTCHours() * 3600 + d.getUTCMinutes() * 60 + d.getUTCSeconds();
   const secs = (((utcSecs + (offsetMin ?? 0) * 60) % 86400) + 86400) % 86400;
   const p = (n: number): string => String(n).padStart(2, '0');
   return `${p(Math.floor(secs / 3600))}:${p(Math.floor((secs % 3600) / 60))}:${p(secs % 60)}`;
@@ -827,6 +897,7 @@ function createAltitudePlot(
   sel: Selection,
   colors: Map<string, string>,
   onScrub: (ms: number) => void,
+  getMarkers: () => TimeMarker[] = () => [],
 ): (t: number) => void {
   const wrap = document.createElement('div');
   wrap.className = 'alt-plot';
@@ -1004,6 +1075,24 @@ function createAltitudePlot(
       const h = data.tracks.find((tr) => tr.pilot === highlight);
       if (h) drawDot(h);
     }
+
+    // Annotation ticks: a small pennant hanging from the top of the plot at each
+    // marked moment, in the annotated pilot's colour. Drawn last so they stay
+    // legible over a dense field of traces.
+    for (const m of getMarkers()) {
+      if (!(m.timeMs >= tMin && m.timeMs <= tMax)) continue;
+      const x = xOf(m.timeMs);
+      ctx.fillStyle = m.color;
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(x - 4, PAD.t);
+      ctx.lineTo(x + 4, PAD.t);
+      ctx.lineTo(x, PAD.t + 8);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    }
   };
 
   const resize = (): void => {
@@ -1066,12 +1155,23 @@ function createTimeToGoPlot(
   colors: Map<string, string>,
   onScrub: (ms: number) => void,
 ): (t: number) => void {
+  // A wheel and a 48px axis gutter are desktop instruments; gate the y-clipping
+  // on the input rather than the viewport, so a small laptop window keeps it and
+  // a large tablet doesn't advertise a gesture it can't make.
+  const finePointer = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+
   const wrap = document.createElement('div');
   wrap.className = 'alt-plot';
   const title = document.createElement('div');
   title.className = 'alt-plot-title';
-  title.textContent =
-    'Time lost vs par (min) — par = top-10 median (start→finish); below = ahead, above = behind; dashed = final glide; drag to scrub';
+  // The day's measured par model alongside the name — the terms τ is computed
+  // from (timetogo.ts): par climb M, and glide speed/ratio taken off the par
+  // pilots' gliding fixes at build time.
+  const ttg = data.timeToGo;
+  const parTerms = ttg
+    ? ` MC: ${ttg.M.toFixed(1)} m/s, Nominal Glide: ${(ttg.Vg * 3.6).toFixed(0)} km/h at ${ttg.g.toFixed(1)}:1, Par Correction: ×${ttg.pace.toFixed(2)}`
+    : '';
+  title.textContent = `Time lost vs top-10 median. ${parTerms}`;
   const canvas = document.createElement('canvas');
   canvas.className = 'alt-plot-canvas';
   wrap.append(title, canvas);
@@ -1107,10 +1207,11 @@ function createTimeToGoPlot(
 
   // Par reference = the median top-10 finisher's line, from their median START
   // point (time, L) to their median FINISH point. The top-10 straddle it, so the
-  // gap to this line reads as minutes ahead of / behind the median winner. Drawn
-  // as a single diagonal (not the old flat L=0 line): with the height-credit τ, a
-  // finisher's L drifts up ~one climb-time of start height over the flight, so a
-  // horizontal par can only touch one end. A day constant, independent of selection.
+  // gap to this line reads as minutes ahead of / behind the median winner. The
+  // pace fit (competition.ts) pins both median endpoints to L ≈ 0, so this comes
+  // out horizontal; it is still drawn through the measured points rather than
+  // flat at 0 so any residual calibration drift shows instead of hiding. A day
+  // constant, independent of selection.
   const medOf = (xs: number[]): number => {
     const s = [...xs].sort((a, b) => a - b);
     const n = s.length;
@@ -1143,6 +1244,16 @@ function createTimeToGoPlot(
   // back to all tracks when nothing is selected. Recomputed on selection change.
   let yMin = 0;
   let yMax = 1;
+  /** The fit-to-selection bounds, kept even while a hand-clipped range is in force. */
+  let autoY: [number, number] = [0, 1];
+  /**
+   * Set once the reader clips the axis by hand. From then on the y axis is
+   * theirs: changing the selection re-fits the time axis but leaves this alone,
+   * because a clip is usually made in order to then go looking through pilots.
+   * Double-clicking the gutter hands it back. Deliberately not persisted — a
+   * range chosen for one day's spread means nothing on the next.
+   */
+  let manualY: [number, number] | null = null;
   let tXMin = tMin;
   let tXMax = tMax;
   const recomputeBounds = (): void => {
@@ -1171,8 +1282,8 @@ function createTimeToGoPlot(
       hi = 1;
     }
     const pad = (hi - lo) * 0.06 || 1;
-    yMin = lo - pad;
-    yMax = hi + pad;
+    autoY = [lo - pad, hi + pad];
+    [yMin, yMax] = manualY ?? autoY;
     tXMin = Number.isFinite(xlo) ? xlo : tMin;
     tXMax = Number.isFinite(xhi) && xhi > xlo ? xhi : tXMin + 1;
   };
@@ -1241,6 +1352,14 @@ function createTimeToGoPlot(
       bc.fillStyle = '#6b625e';
       bc.fillText(String(Math.round(v)), PAD.l - 6, y);
     }
+    // Everything data-shaped is clipped to the plot rect. The axis fits its data
+    // until someone clips it by hand, and from then on lines run off the top and
+    // bottom — over the tick labels and the title if nothing stops them.
+    bc.save();
+    bc.beginPath();
+    bc.rect(PAD.l, PAD.t, plotW, plotH);
+    bc.clip();
+
     // Grey full lines for context.
     bc.strokeStyle = 'rgba(154, 148, 138, 0.4)';
     bc.lineWidth = 1;
@@ -1271,6 +1390,7 @@ function createTimeToGoPlot(
       strokePath(bc, [[sx, PAD.t], [sx, PAD.t + plotH]]);
       bc.setLineDash([]);
     }
+    bc.restore();
     base = b;
   };
 
@@ -1284,6 +1404,11 @@ function createTimeToGoPlot(
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.lineJoin = 'round';
     ctx.lineCap = 'round';
+    // Same clip as the cached layer: a hand-clipped axis puts pilots off-plot.
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(PAD.l, PAD.t, plotW, plotH);
+    ctx.clip();
 
     const highlight = sel.highlight();
     const selected = tracks.filter((tr) => sel.has(tr.pilot));
@@ -1352,6 +1477,7 @@ function createTimeToGoPlot(
       ctx.fill();
       ctx.stroke();
     }
+    ctx.restore();
   };
 
   const resize = (): void => {
@@ -1374,21 +1500,90 @@ function createTimeToGoPlot(
     const x = clientX - canvas.getBoundingClientRect().left - PAD.l;
     return tXMin + Math.min(1, Math.max(0, x / plotW)) * (tXMax - tXMin);
   };
-  let dragging = false;
+
+  // --- clipping the y axis by hand (desktop) --------------------------------
+  // One pilot who lands out at −180 min flattens the leaders into a band three
+  // pixels tall, and they are usually the reason the chart is open. Wheel zooms
+  // the value axis about the cursor; dragging the axis gutter pans it.
+  const cssX = (clientX: number): number => clientX - canvas.getBoundingClientRect().left;
+  /** The tick-label gutter left of the plot: a pan handle, not a scrub target. */
+  const inGutter = (clientX: number): boolean => finePointer && cssX(clientX) < PAD.l;
+
+  // Rebuilding the cached layer redraws every pilot's full line, so a drag that
+  // did it per pointermove would stall a big day. One rebuild per frame instead
+  // (the docks coalesce their resize nudge the same way).
+  let yFrame = 0;
+  const applyY = (min: number, max: number): void => {
+    manualY = [min, max];
+    yMin = min;
+    yMax = max;
+    if (yFrame) return;
+    yFrame = requestAnimationFrame(() => {
+      yFrame = 0;
+      if (plotW > 0 && canvas.clientWidth > 0) {
+        buildBase();
+        draw(lastT);
+      }
+    });
+  };
+
+  if (finePointer) {
+    canvas.addEventListener(
+      'wheel',
+      (e) => {
+        if (plotH <= 0 || cssX(e.clientX) < PAD.l) return; // the gutter pans instead
+        e.preventDefault(); // this gesture is the chart's, not the page's
+        const span = yMax - yMin;
+        const y = e.clientY - canvas.getBoundingClientRect().top;
+        // Zoom about the value under the cursor, so the line being read stays put.
+        const at = yMin + (1 - (y - PAD.t) / plotH) * span;
+        const MIN_SPAN = 0.5; // minutes — below this the axis says nothing
+        const next = Math.min(
+          Math.max(span * (e.deltaY > 0 ? 1.15 : 1 / 1.15), MIN_SPAN),
+          (autoY[1] - autoY[0]) * 4, // no zooming out into empty space
+        );
+        const min = at - ((at - yMin) * next) / span;
+        applyY(min, min + next);
+      },
+      { passive: false },
+    );
+  }
+
+  let dragging: 'time' | 'y' | null = null;
+  let lastPanY = 0;
   canvas.addEventListener('pointerdown', (e) => {
-    dragging = true;
     canvas.setPointerCapture(e.pointerId);
+    if (inGutter(e.clientX)) {
+      dragging = 'y';
+      lastPanY = e.clientY;
+      return;
+    }
+    dragging = 'time';
     onScrub(timeFromX(e.clientX));
   });
   canvas.addEventListener('pointermove', (e) => {
-    if (dragging) onScrub(timeFromX(e.clientX));
+    if (finePointer && !dragging) canvas.style.cursor = inGutter(e.clientX) ? 'ns-resize' : '';
+    if (dragging === 'time') {
+      onScrub(timeFromX(e.clientX));
+    } else if (dragging === 'y' && plotH > 0) {
+      // The data follows the pointer: drag down and the range it sits in rises.
+      const dv = ((e.clientY - lastPanY) * (yMax - yMin)) / plotH;
+      lastPanY = e.clientY;
+      applyY(yMin + dv, yMax + dv);
+    }
   });
   const endDrag = (e: PointerEvent): void => {
-    dragging = false;
+    dragging = null;
     if (canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
   };
   canvas.addEventListener('pointerup', endDrag);
   canvas.addEventListener('pointercancel', endDrag);
+  // Give the axis back to the selection.
+  canvas.addEventListener('dblclick', (e) => {
+    if (!inGutter(e.clientX)) return;
+    manualY = null;
+    rescale();
+  });
 
   // Selection changes the clipped bounds → rescale (rebuild base) then redraw;
   // highlight only changes draw order, so a plain redraw is enough.
@@ -1907,12 +2102,31 @@ function tableEl(
     const pinned = sel.highlight();
     if (!pinned) return;
     const anchor = rowEls.get(pinned);
-    const loss = lossByPilot.get(pinned);
-    if (!anchor || !loss || !timeLoss.winner) return;
+    if (!anchor) return;
 
-    anchor.after(
-      timeLossRow(loss, timeLoss.winner, table.headers.length + 1, timeLoss.contextScale, timeLoss.topCount),
-    );
+    const loss = lossByPilot.get(pinned);
+    const extra = hooks.pinnedExtra?.(pinned) ?? null;
+
+    let row: HTMLElement | null = null;
+    if (loss && timeLoss.winner) {
+      row = timeLossRow(loss, timeLoss.winner, table.headers.length + 1, timeLoss.contextScale, timeLoss.topCount);
+    } else if (extra) {
+      // No time-loss breakdown for this pilot (they don't appear in the
+      // decomposition), but the hook still has something to show — a bare panel
+      // keeps it reachable rather than silently dropping it.
+      row = document.createElement('tr');
+      row.className = 'time-loss';
+      const td = document.createElement('td');
+      td.colSpan = table.headers.length + 1;
+      const panel = document.createElement('div');
+      panel.className = 'tl-panel';
+      td.appendChild(panel);
+      row.appendChild(td);
+    }
+    if (!row) return;
+
+    if (extra) row.querySelector('.tl-panel')?.appendChild(extra);
+    anchor.after(row);
   };
   sel.onHighlight(applyHighlight);
 
