@@ -167,6 +167,15 @@ async function init() {
   // back to "Checking your session…" when we genuinely don't know yet.
   if (!prefillFromCache()) show(loading);
 
+  // The check drags on exactly when the auth service is slow or unreachable
+  // (getSession() blocks on a token refresh then). After a few seconds, admit
+  // that and offer the sign-in form instead of a hint nobody can act on. If the
+  // check later comes back signed-in anyway, the panel simply switches over.
+  const slowTimer = window.setTimeout(() => {
+    el('loading-slow')?.removeAttribute('hidden');
+  }, 5000);
+  el<HTMLButtonElement>('loading-skip')?.addEventListener('click', () => show(signedOut));
+
   const sb = await getSupabase();
 
   // A failed or expired link comes back as an error in the hash, not a throw.
@@ -175,6 +184,7 @@ async function init() {
   const {
     data: { session },
   } = await sb.auth.getSession();
+  window.clearTimeout(slowTimer);
   cleanUrl();
 
   if (session?.user) {
