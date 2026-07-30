@@ -49,14 +49,6 @@ body {
   color: var(--accent);
 }
 
-/* Wordmark: home link like "Analyze", but reads as the site's name, not a tab —
-   so no active underline, and a weight the nav links don't use. */
-.topnav a.brand {
-  color: var(--text);
-  font-weight: 500;
-  letter-spacing: 0.01em;
-}
-
 .topnav a.active {
   color: var(--text);
   border-bottom-color: var(--accent);

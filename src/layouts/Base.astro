@@ -36,7 +36,6 @@ const isAnalyze = path.startsWith('/analyze');
   </head>
   <body>
     <nav class="topnav">
-      <a href="/" class="brand">Outclimb.app</a>
       <a href="/" class:list={[{ active: isArchive }]}>Archive</a>
       <a href="/analyze" class:list={[{ active: isAnalyze }]}>Analyze</a>
       {/* Filled in by src/scripts/nav-account.ts — the session only exists client-side. */}
