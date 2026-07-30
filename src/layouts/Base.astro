@@ -33,8 +33,8 @@ const isHome = path === '/';
   </head>
   <body>
     <nav class="topnav">
-      <a href="/" class:list={[{ active: isHome }]}>Analyze</a>
-      <a href="/archive" class:list={[{ active: isArchive }]}>Archive</a>
+      <a href="/" class:list={[{ active: isArchive }]}>Archive</a>
+      <a href="/analyze" class:list={[{ active: isAnalyze }]}>Analyze</a>
       {/* Filled in by src/scripts/nav-account.ts — the session only exists client-side. */}
       <span id="nav-account" class="nav-account"></span>
     </nav>
