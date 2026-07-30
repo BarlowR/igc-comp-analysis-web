@@ -8,6 +8,10 @@ import { defineConfig } from 'astro/config';
 // /cesium — the page sets window.CESIUM_BASE_URL to match.
 export default defineConfig({
   output: 'static',
+  // The archive listing IS the landing page; old /archive bookmarks land there
+  // too (static build → a meta-refresh stub page). Day pages keep their
+  // /archive/<comp>/<day> URLs.
+  redirects: { '/archive': '/' },
   vite: {
     // Cesium is large; pre-optimise it at dev-server startup so its dep hash is
     // stable. Without this, Vite discovers and re-optimises it mid-session,

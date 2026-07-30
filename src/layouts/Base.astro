@@ -8,13 +8,15 @@ interface Props {
 }
 
 const {
-  title = 'Comp Tracklog Analysis',
-  description = 'Analyze and archive paragliding competition flights in your browser.',
+  title = 'Outclimb.app',
+  description = 'Outclimb.app — analyze, replay, and annotate paragliding competition flights in your browser.',
 } = Astro.props;
 
 const path = Astro.url.pathname;
-const isArchive = path.startsWith('/archive');
-const isHome = path === '/';
+// The archive is the landing page, so "/" and the /archive/… day pages are all
+// one Archive section; Analyze is its own page now.
+const isArchive = path === '/' || path.startsWith('/archive');
+const isAnalyze = path.startsWith('/analyze');
 ---
 
 <!doctype html>
@@ -24,6 +26,7 @@ const isHome = path === '/';
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{title}</title>
     <meta name="description" content={description} />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -33,8 +36,9 @@ const isHome = path === '/';
   </head>
   <body>
     <nav class="topnav">
-      <a href="/" class:list={[{ active: isHome }]}>Analyze</a>
-      <a href="/archive" class:list={[{ active: isArchive }]}>Archive</a>
+      <a href="/" class="brand">Outclimb.app</a>
+      <a href="/" class:list={[{ active: isArchive }]}>Archive</a>
+      <a href="/analyze" class:list={[{ active: isAnalyze }]}>Analyze</a>
       {/* Filled in by src/scripts/nav-account.ts — the session only exists client-side. */}
       <span id="nav-account" class="nav-account"></span>
     </nav>

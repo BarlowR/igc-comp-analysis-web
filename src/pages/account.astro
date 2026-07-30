@@ -4,7 +4,7 @@
 import Base from '../layouts/Base.astro';
 ---
 
-<Base title="Account — Comp Tracklog Analysis">
+<Base title="Account — Outclimb.app">
   <header class="hero">
     <h1>Account</h1>
     <!-- A pitch for signing in; account.ts drops it once you have. -->
@@ -22,6 +22,13 @@ import Base from '../layouts/Base.astro';
 
     <section class="card account-card" id="account-loading">
       <p class="field-hint">Checking your session…</p>
+      {/* Unhidden by account.ts when the check drags on — it hangs exactly when
+          the account service is slow or unreachable, and a bare hint gives you
+          nothing to do about it. */}
+      <p id="loading-slow" class="field-hint" hidden>
+        Still going! This is taking longer than it should.
+        <button id="loading-skip" class="account-btn small" type="button">Continue to sign-in</button>
+      </p>
     </section>
 
     <section class="card account-card" id="account-signed-out" hidden>
