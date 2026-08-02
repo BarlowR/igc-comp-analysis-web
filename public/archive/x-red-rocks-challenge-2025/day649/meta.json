@@ -1,0 +1,32 @@
+{
+  "comp": "x-red-rocks-challenge-2025",
+  "compLabel": "2025 X Red Rocks Challenge",
+  "day": "day649",
+  "dayLabel": "Monroe, Utah — Sep 25",
+  "date": "2025-09-25",
+  "title": "2025-09-25 - Monroe, Utah - Hike and Fly XC Task",
+  "utcOffsetMinutes": -360,
+  "taskKind": "hike-and-fly",
+  "taskFile": "task.xctsk",
+  "igcFiles": [
+    "Austin Monell.1142.208.igc",
+    "Brian Gass.1146.212.igc",
+    "Bruno Perthus.1086.221.igc",
+    "Carlos Roca.1100.204.igc",
+    "Derek Schujahn.754.205.igc",
+    "Eric Wustrow.1156.214.igc",
+    "Jaison Ashbaugh.1113.219.igc",
+    "Jeff Wayland.1064.220.igc",
+    "Jeremy Bernstein.1014.201.igc",
+    "Joseph Giglio .1141.207.igc",
+    "Kristian nilsson .1158.216.igc",
+    "Laura Anderson.1138.203.igc",
+    "Olivier Deiss.946.210.igc",
+    "Riley McDonald.1097.217.igc",
+    "Steffen Otto.1018.202.igc",
+    "Sukrut Sonty.1147.213.igc",
+    "Taylor Grafton.1144.209.igc",
+    "William Farah-Lajoie.1145.211.igc",
+    "stuart gleason.1117.222.igc"
+  ]
+}

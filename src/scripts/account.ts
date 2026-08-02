@@ -18,7 +18,6 @@ const unconfigured = el('account-unconfigured');
 const loading = el('account-loading');
 const signedOut = el('account-signed-out');
 const signedIn = el('account-signed-in');
-const tagline = el('account-tagline');
 
 const signInForm = el<HTMLFormElement>('signin-form');
 const emailInput = el<HTMLInputElement>('signin-email');
@@ -33,8 +32,6 @@ const signOutButton = el<HTMLButtonElement>('sign-out');
 
 function show(section: HTMLElement | null) {
   for (const s of [unconfigured, loading, signedOut, signedIn]) s?.toggleAttribute('hidden', s !== section);
-  // The sign-in pitch is only worth making to someone who hasn't.
-  tagline?.toggleAttribute('hidden', section === signedIn);
 }
 
 function setStatus(node: HTMLElement | null, message: string, kind: 'ok' | 'error' | '' = '') {

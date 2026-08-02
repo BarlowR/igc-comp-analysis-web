@@ -9,6 +9,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { IgcFlight } from '../src/lib/igc.ts';
+import { parseXcTask, type XcTask } from '../src/lib/xctsk.ts';
 
 const close = (a: number, b: number, eps = 1e-6): boolean => Math.abs(a - b) <= eps;
 const p = (n: number, w: number): string => String(Math.trunc(n)).padStart(w, '0');
@@ -125,4 +126,77 @@ test('metrics: stationary climb ⇒ stoppedAndClimbing; moving descent ⇒ sinki
   const glide = steady(40, { dLatmm: 100, dGalt: -5 });
   assert.equal(glide.df.sinkingOnGlide[35], true, 'expected sinking on glide');
   assert.equal(glide.df.stoppedToClimb[35], false);
+});
+
+// ---- where the scored task ends -------------------------------------------
+// buildCompMetrics finishes at the turnpoint that declares itself the ESS, and
+// at the LAST turnpoint when none does — a hike and fly has no ESS cylinder
+// before goal, so the goal is the finish. Synthetic tasks, so the flight is a
+// straight line through cylinders at known latitudes.
+
+/** Cylinders (r=400 m) at 47.0/47.1/47.2/47.3 °N on 8°E; gate 13:00Z. */
+function taskAt(types: (string | null)[]): XcTask {
+  return parseXcTask(
+    JSON.stringify({
+      taskType: 'CLASSIC',
+      sss: { type: 'RACE', direction: 'EXIT', timeGates: ['13:00:00Z'] },
+      goal: { type: 'CYLINDER' },
+      turnpoints: types.map((type, i) => ({
+        radius: 400,
+        ...(type ? { type } : {}),
+        waypoint: { lat: 47 + i * 0.1, lon: 8, altSmoothed: 1000, description: '', name: `TP${i}` },
+      })),
+    }),
+  );
+}
+
+/**
+ * Sits in the start cylinder, then flies straight up the 8°E meridian to 47.35
+ * at 0.005°/fix — so 47.1/47.2/47.3 are hit exactly, and there are fixes beyond
+ * the last one for COMPLETED to land on.
+ *
+ * The four stationary fixes matter: buildComputedMetrics drops the first fix, so
+ * a flight that leaves the SSS immediately would have no "inside the cylinder"
+ * fix left to start from.
+ */
+function crossingFlight(): string {
+  const recs: string[] = [];
+  const at = (i: number, lat: number): string =>
+    bRec({ h: 13, m: Math.floor((i * 5) / 60), s: (i * 5) % 60, latDeg: 47, latmm: Math.round(lat * 60 * 1000), galt: 2000 });
+  for (let i = 0; i < 4; i++) recs.push(at(i, 0)); // holding in the start cylinder
+  for (let i = 0; i <= 70; i++) recs.push(at(4 + i, i * 0.005));
+  return igc(recs, { date: '070726' });
+}
+
+test('task end: an explicit ESS finishes there, not at the goal behind it', () => {
+  // The XC shape: an ESS cylinder at the second-to-last turnpoint, goal last.
+  const f = new IgcFlight(crossingFlight());
+  f.buildCompMetrics(taskAt(['SSS', null, 'ESS', null]));
+  assert.equal(f.stats.completed, true);
+  // Finish is TP2 (47.2), so scoring stops there rather than running on to TP3.
+  const lat = f.compDf!.lat;
+  assert.ok(lat[lat.length - 1] < 47.25, `scored past the ESS: ended at ${lat[lat.length - 1]}`);
+  assert.ok(lat[lat.length - 1] > 47.19, `stopped short of the ESS: ${lat[lat.length - 1]}`);
+});
+
+test('task end: no ESS (hike and fly) finishes at the goal, not a turnpoint early', () => {
+  const f = new IgcFlight(crossingFlight());
+  f.buildCompMetrics(taskAt(['SSS', null, null, null]));
+  assert.equal(f.stats.completed, true);
+  // With no ESS the last turnpoint (47.3) is the finish; the old
+  // second-to-last rule would have called it done at 47.2, ~11 km short.
+  const lat = f.compDf!.lat;
+  assert.ok(lat[lat.length - 1] > 47.29, `finished a turnpoint early: ended at ${lat[lat.length - 1]}`);
+});
+
+test('task end: a nameless turnpoint is not a finished task', () => {
+  // Regression: reading "finished" off a missing waypoint NAME rather than the
+  // turnpoint index scored every such task complete at the first fix.
+  const task = taskAt(['SSS', null, 'ESS', null]);
+  for (const tp of task.turnpoints) tp.name = '';
+  const f = new IgcFlight(crossingFlight());
+  f.buildCompMetrics(task);
+  assert.equal(f.stats.completed, true); // completes on geometry, as before
+  const lat = f.compDf!.lat;
+  assert.ok(lat[lat.length - 1] < 47.25, `nameless turnpoints ended it early: ${lat[lat.length - 1]}`);
 });

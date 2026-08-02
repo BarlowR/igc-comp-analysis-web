@@ -1,0 +1,33 @@
+{
+  "comp": "x-red-rocks-2023",
+  "compLabel": "2023 X Red Rocks",
+  "day": "day493",
+  "dayLabel": "Monroe, Utah — Sep 29",
+  "date": "2023-09-29",
+  "title": "2023-09-29 - Monroe, Utah - Hike and Fly XC Task",
+  "utcOffsetMinutes": -360,
+  "taskKind": "hike-and-fly",
+  "taskFile": "task.xctsk",
+  "igcFiles": [
+    "Aaron Durogati.841.1.igc",
+    "Ben Abruzzo.319.4.igc",
+    "Ben Brunsvold.922.25.igc",
+    "Ben Walker.755.9.igc",
+    "Chris Lorimer.879.20.igc",
+    "Christopher Moody.785.13.igc",
+    "Eric Klammer.597.11.igc",
+    "Isaac J lammers.599.21.igc",
+    "Jared Scheid.780.10.igc",
+    "Jason Wallace.529.6.igc",
+    "Jay Cady.849.15.igc",
+    "Jonathan Klimow.853.19.igc",
+    "Kevin Carter.596.7.igc",
+    "Lars Meerstetter.963.2.igc",
+    "Markus Anders.966.27.igc",
+    "Nick stahler.903.24.igc",
+    "Pal Takats.982.28.igc",
+    "Reavis Sutphin-Gray.116.5.igc",
+    "Samuel Inouye.861.23.igc",
+    "Tyler Burns.598.8.igc"
+  ]
+}

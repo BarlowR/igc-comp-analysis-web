@@ -3,25 +3,48 @@
 // analysis client-side (scripts/app.ts → runAnalysis). The archive lives at "/";
 // this page is for days we don't host.
 import Base from '../layouts/Base.astro';
+import { TASK_KINDS, TASK_KIND_LABELS, DEFAULT_TASK_KIND } from '../lib/xctsk';
+
+// Task kind can't be read from the .xctsk (XContest calls every one of these
+// "CLASSIC"), so it's asked for here. It picks the metric set — see
+// competition.ts `metricsFor`.
 ---
 
 <Base title="Analyze — Outclimb.app">
   <header class="hero">
     <h1>Analyze</h1>
-    <p>Run the analysis on your own task — nothing is uploaded, it all happens in your browser.</p>
   </header>
 
   <main>
     <section class="card uploader">
+      <fieldset class="kind-field">
+        <legend class="field-label">1 · Task type</legend>
+        <div class="kind-options">
+          {
+            TASK_KINDS.map((kind) => (
+              <label class="kind-option">
+                <input
+                  type="radio"
+                  name="task-kind"
+                  value={kind}
+                  checked={kind === DEFAULT_TASK_KIND}
+                />
+                <span class="kind-name">{TASK_KIND_LABELS[kind]}</span>
+              </label>
+            ))
+          }
+        </div>
+      </fieldset>
+
       <div class="drop">
         <label class="file-field">
-          <span class="field-label">1 · Task file <code>.xctsk</code></span>
+          <span class="field-label">2 · Task file <code>.xctsk</code></span>
           <input id="task-input" type="file" accept=".xctsk,application/json" />
           <span id="task-name" class="field-hint">No task file selected</span>
         </label>
 
         <label class="file-field">
-          <span class="field-label">2 · Pilot tracklogs <code>.igc</code></span>
+          <span class="field-label">3 · Pilot tracklogs <code>.igc</code></span>
           <input id="igc-input" type="file" accept=".igc" multiple />
           <span id="igc-count" class="field-hint">No IGC files selected</span>
         </label>

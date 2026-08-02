@@ -7,8 +7,6 @@ import Base from '../layouts/Base.astro';
 <Base title="Account — Outclimb.app">
   <header class="hero">
     <h1>Account</h1>
-    <!-- A pitch for signing in; account.ts drops it once you have. -->
-    <p id="account-tagline">Sign in to view in 3D, claim results, and annotate flights.</p>
   </header>
 
   <main>
@@ -33,9 +31,9 @@ import Base from '../layouts/Base.astro';
 
     <section class="card account-card" id="account-signed-out" hidden>
       <h2>Sign In / Sign Up</h2>
-      <p class="field-hint">
-        Enter your email and we'll send a sign-in link. Look for an email from "Supabase Auth".
-      </p>
+      {/* Kept: which sender to look for is the one thing the flow can't show
+          you, and it's why people give up waiting. */}
+      <p class="field-hint">The link arrives from "Supabase Auth".</p>
       <form id="signin-form" class="account-form">
         <label class="field-label" for="signin-email">Email</label>
         <input id="signin-email" type="email" name="email" required autocomplete="email"
@@ -47,10 +45,6 @@ import Base from '../layouts/Base.astro';
 
     <section class="card account-card" id="account-signed-in" hidden>
       <h2>Your flights</h2>
-      <p class="field-hint">
-        Claim your name in the archive and your tasks are listed here. The archive can't work
-        this out on its own — entry numbers change between comps, so only the name links them.
-      </p>
 
       <div id="claims-list" class="claims-list"></div>
       <p id="claims-status" class="form-status" role="status" aria-live="polite"></p>
@@ -77,7 +71,7 @@ import Base from '../layouts/Base.astro';
       <form id="name-form" class="account-form">
         <label class="field-label" for="display-name">Username</label>
         <input id="display-name" type="text" name="display_name" maxlength="60"
-          autocomplete="name" placeholder="How your name appears on annotations" />
+          autocomplete="name" />
         <button type="submit" class="account-btn">Save</button>
       </form>
       <p id="name-status" class="form-status" role="status" aria-live="polite"></p>

@@ -419,13 +419,28 @@ export class IgcFlight {
     c.nextWaypointName = new Array<string>(c.timeMs.length).fill('');
     this.sssExitIdx = null;
 
+    // Where the scored task ends: the turnpoint that declares itself the end of
+    // speed section, and failing that the last one.
+    //
+    // An XC comp task always names an ESS, and by convention puts it at the
+    // second-to-last turnpoint — an ESS cylinder sitting at goal, then goal
+    // itself — so for those this is the same turnpoint the old "second-to-last"
+    // rule picked, and every archived XC day scores identically.
+    //
+    // A hike and fly has no ESS cylinder before goal at all: the goal IS the
+    // finish. Reading the type rather than counting from the end is what lets
+    // those tasks say so, instead of having to carry a fabricated ESS to keep
+    // from being scored complete a turnpoint early.
+    const essIdx = tps.findIndex((tp) => tp.type === 'ESS');
+    const finishIdx = essIdx === -1 ? tps.length - 1 : essIdx;
+
     let nextIdx = 0;
     if (tps[0]?.type === 'TAKEOFF') nextIdx = 1;
     let entryTime: number | null = null;
 
     for (let i = 0; i < c.timeMs.length; i++) {
-      // Reached the end of the task (ESS is second-to-last turnpoint).
-      if (nextIdx >= tps.length - 1) {
+      // Past the finish turnpoint — the task is done.
+      if (nextIdx > finishIdx) {
         c.nextWaypointName[i] = 'COMPLETED';
         continue;
       }
@@ -451,9 +466,16 @@ export class IgcFlight {
         }
       }
 
-      // nextIdx advances to at most tps.length-1 (the goal); COMPLETED is
-      // emitted on the following iteration by the guard above.
-      c.nextWaypointName[i] = tps[nextIdx].name;
+      // This column is "next waypoint", so the fix that crosses into the ESS
+      // still names the goal beyond it, and COMPLETED lands on the fix after —
+      // which is what the crop, and therefore completion_time, measures. Kept
+      // exactly as it was: every archived XC day is scored off this.
+      //
+      // Where the finish IS the last turnpoint (a hike and fly), nextIdx runs
+      // off the end instead and there is nothing left to name, so COMPLETED
+      // lands on the crossing fix itself. Tested on the index rather than a
+      // missing name — a nameless turnpoint is not a finished task.
+      c.nextWaypointName[i] = nextIdx < tps.length ? tps[nextIdx].name : 'COMPLETED';
     }
   }
 
@@ -571,8 +593,20 @@ export class IgcFlight {
     const completedIdx = c.nextWaypointName.findIndex((nm) => nm === 'COMPLETED');
     const completed = completedIdx !== -1;
     s.completed = completed;
+    // Elapsed time from the START GATE, not from this pilot's first logged fix
+    // in the window — which is what the additive identity above already assumes
+    // (seconds_after_gate + the four state seconds = completion_time), and the
+    // only reference every pilot shares.
+    //
+    // The two agree to within one fix interval on a comp day, where pilots are
+    // airborne and logging before the gate opens. They do not agree at all on a
+    // hike and fly: X Red Rocks 2025 day 640 is a mass start at 08:00 with every
+    // tracklog beginning 20–55 minutes later, each by a different amount, so
+    // measuring from the first fix credited each pilot their own head start and
+    // put the field in the wrong order.
+    const startMs = this.startGateMs;
     s.completion_time = completed
-      ? (c.timeMs[completedIdx] - c.timeMs[0]) / 1000
+      ? (c.timeMs[completedIdx] - (startMs ?? c.timeMs[0])) / 1000
       : null;
     // Height at the finish (ESS crossing). Only meaningful for a completed
     // task, so non-completers get null rather than their landing altitude.

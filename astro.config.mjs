@@ -13,11 +13,19 @@ export default defineConfig({
   // /archive/<comp>/<day> URLs.
   redirects: { '/archive': '/' },
   vite: {
-    // Cesium is large; pre-optimise it at dev-server startup so its dep hash is
-    // stable. Without this, Vite discovers and re-optimises it mid-session,
-    // invalidating the old URL ("504 Outdated Optimize Dep").
+    // Pre-optimise these at dev-server startup so their dep hashes are stable.
+    // Without it, Vite discovers and re-optimises them mid-session, invalidating
+    // the old URL ("504 Outdated Optimize Dep").
+    //
+    // Cesium is here because it is large. supabase-js is here because nothing
+    // imports it statically — lib/supabase.ts loads it with a dynamic import, so
+    // it misses the startup scan entirely and is only discovered when someone
+    // actually signs in. If a build has rewritten node_modules/.vite in the
+    // meantime (they share the directory), that discovery 504s instead of
+    // re-optimising, and sign-in fails with "Failed to fetch dynamically
+    // imported module" until the dev server is restarted.
     optimizeDeps: {
-      include: ['cesium'],
+      include: ['cesium', '@supabase/supabase-js'],
     },
   },
 });

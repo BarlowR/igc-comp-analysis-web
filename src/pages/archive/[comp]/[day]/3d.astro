@@ -50,9 +50,6 @@ const clientEntry = { base, label: heading, utcOffsetMinutes: entry.utcOffsetMin
         <div class="gate3d-icon" aria-hidden="true">◈</div>
         <h1>Fly this day in 3D</h1>
         <p class="gate3d-day">{heading}</p>
-        <p class="gate3d-copy">
-          3D Replay is for account holders. Sign-up is free: 
-        </p>
         <a id="gate3d-signin" class="account-btn gate3d-btn" href="/account">
           Sign in or create an account
         </a>
@@ -198,15 +195,12 @@ const clientEntry = { base, label: heading, utcOffsetMinutes: entry.utcOffsetMin
     color: var(--muted);
     font-size: 0.9rem;
   }
-  .gate3d-copy {
-    margin: 1rem 0 1.4rem;
-    color: var(--text);
-    line-height: 1.5;
-  }
-  /* .account-btn is styled for <button>; as a link it needs these two. */
+  /* .account-btn is styled for <button>; as a link it needs the first two. The
+     margin was the removed copy's — the button carries it now. */
   .gate3d-btn {
     display: inline-block;
     text-decoration: none;
+    margin-top: 1.4rem;
   }
   .gate3d-back {
     display: block;

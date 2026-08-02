@@ -4,7 +4,7 @@
  */
 
 import { IgcFlight, type Stats } from './igc';
-import { parseXcTask, type XcTask } from './xctsk';
+import { parseXcTask, DEFAULT_TASK_KIND, type XcTask, type TaskKind } from './xctsk';
 import { buildGeom, taskDistanceM, remainingSeries, smoothAlt, tauSeries } from './timetogo';
 
 /** Derive a readable fallback pilot name from an IGC filename. */
@@ -22,8 +22,15 @@ import { haversine } from './math';
 
 export type GradientDir = 'least_positive' | 'most_positive' | 'most_negative' | null;
 
+/** One column of the stats table: a stats key, its shading, and its heading. */
+export interface MetricColumn {
+  key: string;
+  dir: GradientDir;
+  label: string;
+}
+
 /** Mirror of COMP_SUBSET: [stats key] -> [gradient direction, display label]. */
-export const COMP_SUBSET: { key: string; dir: GradientDir; label: string }[] = [
+export const COMP_SUBSET: MetricColumn[] = [
   { key: 'name', dir: null, label: 'Pilot Name' },
   { key: 'completion_time', dir: 'least_positive', label: 'Completion Time (s)' },
   { key: 'comp_start_msl', dir: 'most_positive', label: 'Start Altitude MSL (m)' },
@@ -41,6 +48,31 @@ export const COMP_SUBSET: { key: string; dir: GradientDir; label: string }[] = [
   { key: 'comp_percentage_time_climbing_on_glide_s', dir: 'most_positive', label: 'Climbing on Glide (%)' },
   { key: 'comp_average_altitude', dir: 'most_positive', label: 'Average Altitude (m)' },
 ];
+
+/**
+ * Hike and fly: deliberately the smallest set that still describes the day.
+ *
+ * The columns dropped from COMP_SUBSET aren't unavailable — every `comp_*` stat
+ * is still computed the same way — they're withheld because a hiked leg reads as
+ * flying with none of the flying: the pilot is on the ground gaining height at
+ * walking pace, which lands in the stopped/climbing states and drags the
+ * thermal, glide and start-height metrics away from anything comparable between
+ * pilots. What's left holds up either way: how long the task took, how far and
+ * how high they flew, and the climbing they did (rate excluded — see above).
+ * Add columns here as the metrics are made hike-aware, one at a time.
+ */
+export const HIKE_AND_FLY_SUBSET: MetricColumn[] = [
+  { key: 'name', dir: null, label: 'Pilot Name' },
+  { key: 'completion_time', dir: 'least_positive', label: 'Completion Time (s)' },
+  { key: 'comp_total_distance', dir: 'least_positive', label: 'Total Distance Flown (m)' },
+  { key: 'comp_total_meters_climbed', dir: null, label: 'Total Meters Climbed (m)' },
+  { key: 'comp_average_altitude', dir: 'most_positive', label: 'Average Altitude (m)' },
+];
+
+/** The stats-table columns for a task kind. */
+export function metricsFor(kind: TaskKind): MetricColumn[] {
+  return kind === 'hike-and-fly' ? HIKE_AND_FLY_SUBSET : COMP_SUBSET;
+}
 
 const CLIMB_RATE_LABELS = ['1ms', '2ms', '3ms', '4ms', '5ms', '>5ms'];
 export const CLIMB_RATE_TICKS = ['1 m/s', '2 m/s', '3 m/s', '4 m/s', '5 m/s', '>5 m/s'];
@@ -104,11 +136,21 @@ export interface MapTrack {
 export interface MapData {
   turnpoints: MapTurnpoint[];
   tracks: MapTrack[];
+  /**
+   * XC comp or hike and fly. This is the one place the kind travels to the
+   * client — the results JSON is built from a Competition, so every consumer
+   * reads it from here rather than being told separately. It gates the Time Lost
+   * chart in the 3D viewer, and it is why `timeToGo` and `tau` are absent on a
+   * hike-and-fly day.
+   */
+  taskKind: TaskKind;
   /** Minutes to add to UTC for local task time; null = display UTC. */
   utcOffsetMinutes: number | null;
   /** Epoch-ms of the SSS start gate (for the start-time marker); null if unknown. */
   startMs: number | null;
-  /** Day-level par constants for the Time Lost chart; null if unavailable.
+  /** Day-level par constants for the Time Lost chart; null if unavailable —
+   * either no usable ESS/finisher data, or a hike-and-fly task, whose part-hiked
+   * legs the air-only par model doesn't describe.
    * `tauRef` is the common par-ghost anchor (minutes): the par pilot's Time Lost
    * from the start, tauSeries evaluated at (dTask, hRef). See timetogo.ts
    * `lostSeries`; L(t) = tau(t) + (t − t_gate)/60 − tauRef is "minutes behind
@@ -245,10 +287,39 @@ export class Competition {
   pilots: PilotRow[] = [];
   /** Minutes to add to UTC for local task time (from archive meta); null = UTC. */
   utcOffsetMinutes: number | null;
+  /** XC comp or hike and fly — see xctsk.ts `TaskKind`. Chooses the metric set
+   * and whether the par/Time Lost model runs at all. */
+  kind: TaskKind;
 
-  constructor(taskText: string, utcOffsetMinutes: number | null = null) {
+  constructor(
+    taskText: string,
+    utcOffsetMinutes: number | null = null,
+    kind: TaskKind = DEFAULT_TASK_KIND,
+  ) {
     this.task = parseXcTask(taskText);
     this.utcOffsetMinutes = utcOffsetMinutes;
+    this.kind = kind;
+  }
+
+  /**
+   * The whole client payload for this day: metrics table, climb distribution,
+   * map/track data, and the time-loss decomposition. What the build-time archive
+   * endpoint serialises and what the upload page renders directly, so both go
+   * through the same kind-dependent choices rather than each assembling their own
+   * set.
+   */
+  buildResults(): {
+    table: StatsTable;
+    climb: ClimbData;
+    map: MapData;
+    timeLoss: TimeLossData;
+  } {
+    return {
+      table: this.buildStatsTable(),
+      climb: this.buildClimbData(),
+      map: this.buildMapData(),
+      timeLoss: this.buildTimeLoss(),
+    };
   }
 
   /**
@@ -321,6 +392,12 @@ export class Competition {
 
     // Time Lost: par constants from the results, then a τ series per track. See
     // timetogo.ts. Guarded so a task without a usable ESS/finishers just omits it.
+    // Hike and fly omits it by kind, not by data: the model prices a leg as climb
+    // plus glide, and a leg walked up a hill is neither, so a "par pilot" fitted
+    // to those durations describes nothing. Skipping it here is also what removes
+    // the Time Lost chart downstream (see mountTimeline) and keeps the per-track
+    // τ arrays out of the day JSON.
+    const modelsPar = this.kind === 'xc';
     const geom = buildGeom(turnpoints);
     const taskDist = geom.cx.length >= 2 ? taskDistanceM(geom) : 0;
     // Par is measured from the day's fastest PAR_N finishers: M = median climb,
@@ -339,7 +416,7 @@ export class Competition {
     const medComp = median(compTimes);
     const Vcc = medComp > 0 ? taskDist / medComp : 0;
     const hFin = finishes.length ? Math.min(...finishes) : 0;
-    const hasTau = geom.cx.length >= 2 && M > 0 && Vcc > 0 && finishers.length > 0;
+    const hasTau = modelsPar && geom.cx.length >= 2 && M > 0 && Vcc > 0 && finishers.length > 0;
 
     // Per-pilot D_rem + smoothed height (used for τ, finalGlide, and the SSS-exit
     // altitude), computed once so the ghost anchor h_ref can be taken across the fleet.
@@ -440,6 +517,7 @@ export class Competition {
     return {
       turnpoints,
       tracks,
+      taskKind: this.kind,
       utcOffsetMinutes: this.utcOffsetMinutes,
       startMs,
       timeToGo: hasTau ? { M, Vcc, Vg, g, pace, hFin, dTask: taskDist, hRef, tauRef } : null,
@@ -453,20 +531,21 @@ export class Competition {
       .filter((p) => p.completed)
       .sort((a, b) => num(a.stats.completion_time) - num(b.stats.completion_time));
     const incomplete = this.pilots.filter((p) => !p.completed);
+    const columns = metricsFor(this.kind);
 
     return {
-      headers: COMP_SUBSET.map((c) => c.label),
-      dirs: COMP_SUBSET.map((c) => c.dir),
-      completed: this.buildRows(completed),
-      incomplete: this.buildRows(incomplete),
+      headers: columns.map((c) => c.label),
+      dirs: columns.map((c) => c.dir),
+      completed: this.buildRows(completed, columns),
+      incomplete: this.buildRows(incomplete, columns),
     };
   }
 
   // Emit text + raw value per cell. Gradient shading is applied client-side so
   // it can react to the current pilot selection.
-  private buildRows(rows: PilotRow[]): TableCell[][] {
+  private buildRows(rows: PilotRow[], columns: MetricColumn[]): TableCell[][] {
     return rows.map((row) =>
-      COMP_SUBSET.map((col) => {
+      columns.map((col) => {
         const raw = row.stats[col.key];
         if (col.key === 'name') {
           return { text: String(raw), value: NaN };
@@ -495,20 +574,28 @@ export class Competition {
    * lift/sink carries no good/bad meaning at the time level. That quality
    * survives in the height column as `altGlide` (net metres on glide). The
    * merge preserves both additive identities.
+   *
+   * Empty on a hike-and-fly task: the decomposition is exactly the four air
+   * states (thermalling, gliding, stopped), and a hiked leg belongs to none of
+   * them, so the breakdown would attribute walking to zeros and re-centring. The
+   * empty result is what leaves the breakdown panel off the stats table — see
+   * `applyHighlight` in scripts/analysis.ts, which still shows the pinned
+   * pilot's claim control without it.
    */
   buildTimeLoss(): TimeLossData {
+    const empty: TimeLossData = {
+      winner: null,
+      rows: [],
+      contextScale: { avgClimbRate: 0, avgAltitude: 0, totalDistance: 0 },
+      topCount: 0,
+    };
+    if (this.kind !== 'xc') return empty;
+
     const completed = this.pilots
       .filter((p) => p.completed)
       .sort((a, b) => num(a.stats.completion_time) - num(b.stats.completion_time));
     const winner = completed[0];
-    if (!winner) {
-      return {
-        winner: null,
-        rows: [],
-        contextScale: { avgClimbRate: 0, avgAltitude: 0, totalDistance: 0 },
-        topCount: 0,
-      };
-    }
+    if (!winner) return empty;
 
     // The winner has no one ahead to measure against, so their all-zero row
     // would be dead weight. Instead the winner is compared to the average of

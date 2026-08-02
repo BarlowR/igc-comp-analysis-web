@@ -5,6 +5,7 @@
 import Base from '../../../layouts/Base.astro';
 import LoadingOverlay from '../../../components/LoadingOverlay.astro';
 import manifest from '../../../archive-manifest.json';
+import { parseTaskKind } from '../../../lib/xctsk';
 
 interface Entry {
   comp: string;
@@ -14,6 +15,8 @@ interface Entry {
   date?: string;
   title?: string;
   notes?: string;
+  /** "xc" (default) or "hike-and-fly" — see src/lib/xctsk.ts TaskKind. */
+  taskKind?: string;
 }
 
 export function getStaticPaths() {
@@ -25,6 +28,9 @@ const { entry } = Astro.props as { entry: Entry };
 const base = `/archive/${entry.comp}/${entry.day}`;
 const clientEntry = { base };
 const heading = entry.title ?? `${entry.compLabel ?? entry.comp} — ${entry.dayLabel ?? entry.day}`;
+// A hike-and-fly day shows a deliberately small metric set and no Time Lost
+// chart, so it says so — otherwise the short table reads as missing data.
+const isHikeAndFly = parseTaskKind(entry.taskKind) === 'hike-and-fly';
 ---
 
 <Base title={`${heading} — Archive`}>
@@ -43,6 +49,9 @@ const heading = entry.title ?? `${entry.compLabel ?? entry.comp} — ${entry.day
   <main>
     <section class="card">
       {entry.notes && <p>{entry.notes}</p>}
+      {/* The kind, not an explanation of it — the short metric table speaks for
+          itself, but nothing else on this page says which kind of task it is. */}
+      {isHikeAndFly && <p class="status">Hike and Fly task</p>}
       <span id="status" class="status">Loading…</span>
     </section>
 
