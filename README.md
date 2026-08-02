@@ -1,10 +1,11 @@
-# Competition Flight Analysis — Web
+# Outclimb.app
 
-A standalone, static web app that reproduces the `comp_analysis.py` tooling
-([igc-tools](../igc-tools)) entirely in the browser. Upload an XContest task
-file and a set of pilot IGC tracklogs to get the competition stats table and
-climb-rate distribution charts. No server, no upload — all parsing and analysis
-runs client-side.
+Paragliding competition flight analysis in the browser — a standalone, static
+web app (originally a port of the `comp_analysis.py` tooling in
+[igc-tools](../igc-tools)). Upload an XContest task file and a set of pilot IGC
+tracklogs to get the competition stats table and climb-rate distribution
+charts, or browse the built-in archive with its 2D and 3D replay viewers. No
+server, no upload — all parsing and analysis runs client-side.
 
 ## Usage
 
@@ -15,7 +16,8 @@ npm run build    # static site -> dist/
 npm run preview  # serve the built site
 ```
 
-Open the page, choose a `.xctsk` task file and one or more `.igc` files, then
+The landing page is the archive of hosted comps. To analyze your own day, open
+`/analyze`, choose a `.xctsk` task file and one or more `.igc` files, then
 click **Analyze flights**.
 
 ## How it works

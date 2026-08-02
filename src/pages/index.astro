@@ -1,39 +1,67 @@
 ---
-// Standalone competition flight analysis — all computation runs client-side.
+// The landing page IS the archive: every archived comp/day from the build-time
+// manifest. The upload-your-own analysis lives at /analyze.
 import Base from '../layouts/Base.astro';
+import manifest from '../archive-manifest.json';
+
+interface Entry {
+  comp: string;
+  compLabel?: string;
+  day: string;
+  dayLabel?: string;
+  date?: string;
+  title?: string;
+  notes?: string;
+  taskFile: string;
+  igcFiles: string[];
+  /** Unlisted: the day page still builds (URL works), but it's hidden from this index. */
+  hidden?: boolean;
+}
+
+const entries = (manifest as unknown as Entry[]).filter((e) => !e.hidden);
+
+// Group by competition, preserving manifest order within each.
+const byComp = new Map<string, { label: string; days: Entry[] }>();
+for (const e of entries) {
+  if (!byComp.has(e.comp)) byComp.set(e.comp, { label: e.compLabel ?? e.comp, days: [] });
+  byComp.get(e.comp)!.days.push(e);
+}
+const comps = [...byComp.entries()];
 ---
 
-<Base title="Comp Tracklog Analysis">
+<Base title="Outclimb.app">
   <header class="hero">
-    <h1>Paragliding Comp Tracklog Analysis</h1>
+    <h1>Outclimb.app</h1>
+    <p>Paragliding Competition Tracklog Analysis</p>
   </header>
 
   <main>
-    <section class="card uploader">
-      <div class="drop">
-        <label class="file-field">
-          <span class="field-label">1 · Task file <code>.xctsk</code></span>
-          <input id="task-input" type="file" accept=".xctsk,application/json" />
-          <span id="task-name" class="field-hint">No task file selected</span>
-        </label>
-
-        <label class="file-field">
-          <span class="field-label">2 · Pilot tracklogs <code>.igc</code></span>
-          <input id="igc-input" type="file" accept=".igc" multiple />
-          <span id="igc-count" class="field-hint">No IGC files selected</span>
-        </label>
-      </div>
-
-      <div class="actions">
-        <button id="analyze-btn" type="button" disabled>Analyze flights</button>
-        <span id="status" class="status"></span>
-      </div>
-    </section>
-
-    <div id="results" class="results"></div>
+    {
+      comps.length === 0 ? (
+        <section class="card">
+          <p class="archive-empty">
+            No archived analyses yet. Add one with <code>npm run archive</code>.
+          </p>
+        </section>
+      ) : (
+        comps.map(([comp, { label, days }]) => (
+          <section class="card archive-comp">
+            <h2>{label}</h2>
+            <ul class="day-list">
+              {days.map((d) => (
+                <li>
+                  <a class="day-link" href={`/archive/${comp}/${d.day}`}>
+                    <div class="day-title">{d.dayLabel ?? d.day}</div>
+                    <div class="day-meta">
+                      {[d.date, `${d.igcFiles.length} tracks`].filter(Boolean).join(' · ')}
+                    </div>
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ))
+      )
+    }
   </main>
-
-  <script>
-    import '../scripts/app.ts';
-  </script>
 </Base>

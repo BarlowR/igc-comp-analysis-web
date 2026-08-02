@@ -1,0 +1,42 @@
+---
+// Analyze your own task: upload a .xctsk + IGC tracklogs and run the full
+// analysis client-side (scripts/app.ts → runAnalysis). The archive lives at "/";
+// this page is for days we don't host.
+import Base from '../layouts/Base.astro';
+---
+
+<Base title="Analyze — Outclimb.app">
+  <header class="hero">
+    <h1>Analyze</h1>
+    <p>Run the analysis on your own task — nothing is uploaded, it all happens in your browser.</p>
+  </header>
+
+  <main>
+    <section class="card uploader">
+      <div class="drop">
+        <label class="file-field">
+          <span class="field-label">1 · Task file <code>.xctsk</code></span>
+          <input id="task-input" type="file" accept=".xctsk,application/json" />
+          <span id="task-name" class="field-hint">No task file selected</span>
+        </label>
+
+        <label class="file-field">
+          <span class="field-label">2 · Pilot tracklogs <code>.igc</code></span>
+          <input id="igc-input" type="file" accept=".igc" multiple />
+          <span id="igc-count" class="field-hint">No IGC files selected</span>
+        </label>
+      </div>
+
+      <div class="actions">
+        <button id="analyze-btn" type="button" disabled>Analyze flights</button>
+        <span id="status" class="status"></span>
+      </div>
+    </section>
+
+    <div id="results" class="results"></div>
+  </main>
+
+  <script>
+    import '../scripts/app.ts';
+  </script>
+</Base>
