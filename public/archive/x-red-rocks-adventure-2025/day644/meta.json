@@ -1,0 +1,32 @@
+{
+  "comp": "x-red-rocks-adventure-2025",
+  "compLabel": "2025 X Red Rocks Adventure",
+  "day": "day644",
+  "dayLabel": "Monroe, Utah — Sep 24",
+  "date": "2025-09-24",
+  "title": "2025-09-24 - Monroe, Utah - Hike and Fly XC Task",
+  "utcOffsetMinutes": -360,
+  "taskKind": "hike-and-fly",
+  "taskFile": "task.xctsk",
+  "igcFiles": [
+    "Albert Nazander.1134.119.igc",
+    "Alex Coslow.1133.100.igc",
+    "Alex berry.993.112.igc",
+    "Amelia Jane Christensen.1149.108.igc",
+    "Calum Neff.1148.107.igc",
+    "Chris Mann.1075.104.igc",
+    "Christopher Puga.1157.121.igc",
+    "Grant Foad.1005.117.igc",
+    "Jared Kellerer.988.109.igc",
+    "John Kear.978.115.igc",
+    "Keaton Blair.1066.101.igc",
+    "Kevin Jones.1154.110.igc",
+    "Kyle krueger.1155.111.igc",
+    "Luke LeMaire.939.114.igc",
+    "Matthew Matera.1109.113.igc",
+    "Moon Choi.1137.102.igc",
+    "Patrick Switzer.1067.106.igc",
+    "Sarah Crosier.1073.103.igc",
+    "Stan Barankiewicz.709.105.igc"
+  ]
+}

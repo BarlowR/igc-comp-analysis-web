@@ -1,0 +1,25 @@
+{
+  "comp": "x-red-rocks-2025",
+  "compLabel": "2025 X Red Rocks",
+  "day": "day640",
+  "dayLabel": "Monroe, Utah — Sep 24",
+  "date": "2025-09-24",
+  "title": "2025-09-24 - Monroe, Utah - Hike and Fly XC Task",
+  "utcOffsetMinutes": -360,
+  "taskKind": "hike-and-fly",
+  "taskFile": "task.xctsk",
+  "igcFiles": [
+    "Alyse Little.1004.10.igc",
+    "Ben Walker.755.12.igc",
+    "Brian Cooper.1153.9.igc",
+    "David Chen.858.13.igc",
+    "David Harrington.980.2.igc",
+    "Gregor Haas.1150.6.igc",
+    "Grégory Mauro.1152.8.igc",
+    "Jens Glatthard.1140.4.igc",
+    "Laurent Borella.1143.5.igc",
+    "Laurent Monneron.1151.7.igc",
+    "Samuel Inouye.861.3.igc",
+    "Stephen Guyette.971.1.igc"
+  ]
+}

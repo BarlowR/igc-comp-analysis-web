@@ -10,7 +10,14 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { Competition, nameFromFile, gradientColor, COMP_SUBSET } from '../src/lib/competition.ts';
+import {
+  Competition,
+  nameFromFile,
+  gradientColor,
+  metricsFor,
+  COMP_SUBSET,
+  HIKE_AND_FLY_SUBSET,
+} from '../src/lib/competition.ts';
 
 const close = (a: number, b: number, eps = 1e-6): boolean => Math.abs(a - b) <= eps;
 const num = (v: unknown): number => (typeof v === 'number' ? v : NaN);
@@ -43,6 +50,22 @@ test('gradientColor: least_positive greens the min, most_positive greens the max
   assert.equal(gradientColor(10, 0, 10, 'most_positive'), 'rgb(0,230,0)');
   assert.equal(gradientColor(10, 0, 10, 'most_negative'), 'rgb(230,0,0)');
   assert.equal(gradientColor(5, 5, 5, 'least_positive'), 'rgb(0,230,0)'); // degenerate range → norm 0
+});
+
+// ---- metric sets ----------------------------------------------------------
+test('metricsFor: xc is the full set, hike-and-fly a strict subset of it', () => {
+  assert.equal(metricsFor('xc'), COMP_SUBSET);
+  assert.equal(metricsFor('hike-and-fly'), HIKE_AND_FLY_SUBSET);
+  assert.ok(HIKE_AND_FLY_SUBSET.length < COMP_SUBSET.length, 'hike-and-fly should be the smaller set');
+
+  // Every hike-and-fly column must be a column the XC set already defines, key,
+  // gradient and label alike. A key that no longer exists in Stats renders as a
+  // full column of '—', which looks like missing data rather than a typo.
+  const xcByKey = new Map(COMP_SUBSET.map((c) => [c.key, c]));
+  for (const col of HIKE_AND_FLY_SUBSET) {
+    assert.deepEqual(xcByKey.get(col.key), col, `${col.key} diverges from the XC column`);
+  }
+  assert.equal(HIKE_AND_FLY_SUBSET[0].key, 'name', 'the pilot name must lead the table');
 });
 
 // ---- integration: rebuild a real archived day -----------------------------
@@ -157,5 +180,63 @@ test('Competition: one row per pilot when a day holds two tracklogs for them', {
     const a = comp.pilots.find((p) => p.name === name)!;
     const b = reversed.pilots.find((p) => p.name === name)!;
     assert.equal(num(a.stats.comp_total_distance), num(b.stats.comp_total_distance), `${name} differs by input order`);
+  }
+});
+
+// ---- hike and fly ---------------------------------------------------------
+// Same tracklogs, both kinds, so every difference below is the kind's doing and
+// not the day's. A real hike-and-fly day isn't needed to pin the wiring down:
+// which columns come out, and that the par/Time Lost model doesn't run.
+test('Competition: hike-and-fly ships the basic metric set and no Time Lost data', { timeout: 120_000 }, (t) => {
+  // Two of the day's finishers, so the XC half of the comparison has the ESS
+  // crossings the par model needs — otherwise it would omit timeToGo for want of
+  // data and prove nothing about the kind.
+  const files = ['russell_ogden_2026-06-21_01.51.igc', 'chaeden_luebberke_2026-06-21_01.7.igc'];
+  if (!existsSync(DUP_DIR) || files.some((f) => !existsSync(DUP_DIR + f))) {
+    t.skip('archive not built (run `npm run build`)');
+    return;
+  }
+  const task = readFileSync(DUP_DIR + 'task.xctsk', 'utf8');
+  const load = (kind: 'xc' | 'hike-and-fly'): ReturnType<Competition['buildResults']> => {
+    const comp = new Competition(task, -420, kind);
+    for (const f of files) comp.addPilot(readFileSync(DUP_DIR + f, 'utf8'), nameFromFile(f));
+    return comp.buildResults();
+  };
+
+  const hnf = load('hike-and-fly');
+  assert.deepEqual(hnf.table.headers, HIKE_AND_FLY_SUBSET.map((c) => c.label));
+  assert.equal(hnf.map.taskKind, 'hike-and-fly');
+  // No par model: no day constants, and no per-track τ to plot against them.
+  assert.equal(hnf.map.timeToGo, null);
+  assert.ok(hnf.map.tracks.length > 0, 'tracks should still be built');
+  for (const tr of hnf.map.tracks) assert.equal(tr.tau, undefined, `${tr.pilot} carries τ`);
+  // An empty decomposition is what leaves the breakdown panel off the table.
+  assert.equal(hnf.timeLoss.winner, null);
+  assert.deepEqual(hnf.timeLoss.rows, []);
+  // The climb-rate distribution is kept — it reads the same on either kind.
+  assert.equal(hnf.climb.completed.length + hnf.climb.incomplete.length, files.length);
+
+  // The same day as an XC comp: full columns, and the par model runs (these
+  // pilots include a finisher, so timeToGo is populated).
+  const xc = load('xc');
+  assert.deepEqual(xc.table.headers, COMP_SUBSET.map((c) => c.label));
+  assert.equal(xc.map.taskKind, 'xc');
+  assert.ok(xc.map.timeToGo, 'xc should still build the par constants');
+
+  // Only the presentation changes: the underlying stats are computed identically,
+  // so a column both kinds show has to hold the same number.
+  const colOf = (cols: typeof COMP_SUBSET, key: string): number => {
+    const i = cols.findIndex((c) => c.key === key);
+    assert.ok(i >= 0, `no ${key} column`);
+    return i;
+  };
+  const hnfDist = colOf(HIKE_AND_FLY_SUBSET, 'comp_total_distance');
+  const xcDist = colOf(COMP_SUBSET, 'comp_total_distance');
+  assert.ok(hnf.table.completed.length + hnf.table.incomplete.length > 0, 'expected rows to compare');
+  for (const group of ['completed', 'incomplete'] as const) {
+    for (const row of hnf.table[group]) {
+      const same = xc.table[group].find((r) => r[0].text === row[0].text);
+      assert.equal(row[hnfDist].text, same?.[xcDist].text, `${row[0].text}: distance differs between kinds`);
+    }
   }
 });

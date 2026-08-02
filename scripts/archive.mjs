@@ -5,10 +5,16 @@
  *   npm run archive -- --comp chelan2026 --day day1 \
  *     --task path/to.xctsk --igc 'path/to/*.igc' \
  *     [--comp-label "Chelan Ozone Open 2026"] [--day-label "Day 1 — Fri"] \
- *     [--date 2026-06-19] [--title "..."] [--notes "..."] [--utc-offset -420]
+ *     [--date 2026-06-19] [--title "..."] [--notes "..."] [--utc-offset -420] \
+ *     [--kind xc|hike-and-fly]
  *
  * --utc-offset is minutes to add to UTC for the comp's local time (airscore's
  * time_offset, e.g. "-7:00:00" -> -420). Used only to display task-local time.
+ *
+ * --kind is the task type, defaulting to xc. A .xctsk can't say which it is (they
+ * are all "CLASSIC"), and it decides which metrics the day shows — see
+ * src/lib/xctsk.ts TaskKind. Only recorded when it isn't the default, so the
+ * manifest stays as it was for every existing day.
  *
  * Copies the task + tracklogs into public/archive/<comp>/<day>/, writes a
  * meta.json, and rebuilds src/archive-manifest.json. --igc may be repeated and
@@ -50,10 +56,18 @@ function prettify(s) {
     .trim();
 }
 
+// Keep in step with TaskKind in src/lib/xctsk.ts.
+const TASK_KINDS = ['xc', 'hike-and-fly'];
+const DEFAULT_TASK_KIND = 'xc';
+
 const args = parseArgs(process.argv.slice(2));
 if (!args.comp || !args.day) die('--comp and --day are required.');
 if (!args.task) die('--task <file.xctsk> is required.');
 if (args.igc.length === 0) die('at least one --igc <glob> is required.');
+// Strict here, unlike the tolerant reader in xctsk.ts: a mistyped --kind at import
+// time would otherwise silently archive a hike and fly as an XC comp.
+const taskKind = args.kind ?? DEFAULT_TASK_KIND;
+if (!TASK_KINDS.includes(taskKind)) die(`--kind must be one of: ${TASK_KINDS.join(', ')}`);
 
 // Resolve IGC globs/paths.
 const igcPaths = [...new Set(args.igc.flatMap((p) => (globSync(p).length ? globSync(p) : existsSync(p) ? [p] : [])))].sort();
@@ -91,13 +105,16 @@ const meta = {
   ...(args.title ? { title: args.title } : {}),
   ...(args.notes ? { notes: args.notes } : {}),
   ...(args['utc-offset'] !== undefined ? { utcOffsetMinutes: Number(args['utc-offset']) } : {}),
+  ...(taskKind !== DEFAULT_TASK_KIND ? { taskKind } : {}),
   taskFile: 'task.xctsk',
   igcFiles,
 };
 writeFileSync(join(destDir, 'meta.json'), JSON.stringify(meta, null, 2) + '\n');
 
 rebuildManifest();
-console.log(`Archived ${args.comp}/${args.day}: ${igcFiles.length} tracklogs -> ${destDir}`);
+console.log(
+  `Archived ${args.comp}/${args.day} (${taskKind}): ${igcFiles.length} tracklogs -> ${destDir}`,
+);
 console.log('Updated src/archive-manifest.json');
 
 /** Scan public/archive/<comp>/<day>/meta.json into the manifest. */

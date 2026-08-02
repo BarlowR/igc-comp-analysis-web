@@ -1,0 +1,33 @@
+{
+  "comp": "x-red-rocks-adventure-2023",
+  "compLabel": "2023 X Red Rocks Adventure",
+  "day": "day496",
+  "dayLabel": "Monroe, Utah — Sep 29",
+  "date": "2023-09-29",
+  "title": "2023-09-29 - Monroe, Utah - Hike and Fly XC Task",
+  "utcOffsetMinutes": -360,
+  "taskKind": "hike-and-fly",
+  "taskFile": "task.xctsk",
+  "igcFiles": [
+    "Adam Gordon.975.118.igc",
+    "Brandon Hopkins.977.121.igc",
+    "Caleb Laszloffy.969.111.igc",
+    "Colin Rathbun.855.105.igc",
+    "Coty Hollifield.612.107.igc",
+    "David Harrington.980.124.igc",
+    "David Preston.970.112.igc",
+    "Evan Kopjar.974.117.igc",
+    "John Kear.978.122.igc",
+    "Josh Mazza .777.103.igc",
+    "Luke LeMaire.939.120.igc",
+    "Mark Herbison.979.123.igc",
+    "Mitchell Friedeman.973.116.igc",
+    "Patrick Murphy.854.104.igc",
+    "Riebeeck Van Niekerk.968.108.igc",
+    "Ryan Mullen .908.115.igc",
+    "Stan Barankiewicz.709.109.igc",
+    "Stephen Guyette.971.113.igc",
+    "Tom Kitto.976.119.igc",
+    "philip massoud.798.110.igc"
+  ]
+}

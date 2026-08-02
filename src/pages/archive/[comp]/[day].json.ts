@@ -7,6 +7,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import manifest from '../../../archive-manifest.json';
 import { Competition, nameFromFile } from '../../../lib/competition';
+import { parseTaskKind } from '../../../lib/xctsk';
 
 interface Entry {
   comp: string;
@@ -14,6 +15,8 @@ interface Entry {
   taskFile: string;
   igcFiles: string[];
   utcOffsetMinutes?: number | null;
+  /** "xc" (default) or "hike-and-fly" — set by `npm run archive -- --kind`. */
+  taskKind?: string;
 }
 
 export const getStaticPaths: GetStaticPaths = () =>
@@ -29,6 +32,7 @@ export const GET: APIRoute = ({ props }) => {
   const comp = new Competition(
     readFileSync(join(dir, entry.taskFile), 'utf8'),
     entry.utcOffsetMinutes ?? null,
+    parseTaskKind(entry.taskKind),
   );
   for (const name of entry.igcFiles) {
     try {
@@ -39,12 +43,9 @@ export const GET: APIRoute = ({ props }) => {
   }
 
   // NaN cells/metrics serialise to null; the renderer already treats non-finite
-  // values as "no value", so this round-trips safely.
-  const body = JSON.stringify({
-    table: comp.buildStatsTable(),
-    climb: comp.buildClimbData(),
-    map: comp.buildMapData(),
-    timeLoss: comp.buildTimeLoss(),
-  });
+  // values as "no value", so this round-trips safely. Which metrics and plots are
+  // in here depends on the task kind — buildResults makes those choices, so the
+  // upload page's live analysis gets the identical set (see runAnalysis).
+  const body = JSON.stringify(comp.buildResults());
   return new Response(body, { headers: { 'content-type': 'application/json' } });
 };

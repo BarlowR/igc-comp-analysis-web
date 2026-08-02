@@ -46,7 +46,54 @@
       equirectangular (metres) projection. A leading TAKEOFF is dropped so the
       route starts at the SSS cylinder. Cylinders + centre dots are unchanged. 
 
-- [ ] Hike and Fly Tasks
+- [x] Hike and Fly Tasks
+      A task is now either an XC Comp or a Hike and Fly (src/lib/xctsk.ts
+      TaskKind). It can't come from the .xctsk — XContest calls all of these
+      "CLASSIC" — so it's a manifest field (`npm run archive -- --kind`) or the
+      picker on /analyze. Hike and fly starts with five columns (name, time,
+      distance flown, metres climbed, average altitude) and no Time Lost plot:
+      on a hiked leg the pilot is gaining height at walking pace on the ground,
+      which reads as flying with none of the flying, so the thermal/glide/start
+      metrics and the par model behind Time Lost don't describe the day. The
+      stats are all still computed — only what's shown changes. Add to
+      HIKE_AND_FLY_SUBSET as each metric is made hike-aware.
+      The kind reaches the client through MapData.taskKind alone; buildMapData
+      skips the par model for it (so timeToGo is null and no τ is emitted, which
+      is what removes the plot) and buildTimeLoss returns empty (which is what
+      removes the breakdown panel).
+      First real data: X Red Rocks from xcdemon — 30 days over 2023/2024/2025,
+      across up to three divisions a year (main, Adventure, Challenge), which
+      file under leagues 31/32/40 though the results page is leagueappid 31.
+      Pulling it needed three fixes to the crawler: the task pages order their
+      turnpoint columns differently (read by header now), their results_task.php
+      returns 200 with an error body (fall back on "no table parsed", not on
+      status), and they carry no ES row at all.
+      That last one is a hike-and-fly property, not a quirk — there is no ESS
+      cylinder before goal; the goal IS the finish. trackTaskProgress now ends
+      the scored task at the turnpoint that declares itself the ESS and at the
+      LAST turnpoint when none does, instead of counting from the end. A no-op
+      for XC: the ESS sits at n−2 in all 25 archived XC tasks, because an ESS
+      cylinder at goal followed by goal is the normal .xctsk shape.
+      Their tracklogs also start 20–55 min after the mass start, each by a
+      different amount, which is why completion_time is now measured from the
+      start gate rather than the first fix in the window.
+
+- [ ] Score cylinder entry on the WGS84 ellipsoid, not a sphere
+      haversine() uses R = 6371 km (a faithful port of math_utils.py). Scoring
+      software uses the WGS84 ellipsoid — which is also what our own .xctsk
+      files declare in `earthModel`. The two disagree by ~0.1%: on X Red Rocks
+      2023 day 494, Ben Walker's closest approach to a 14.5 km cylinder is
+      14502.7 m by our maths (2.7 m OUTSIDE, not scored) and 14487.1 m by
+      Vincenty (12.9 m INSIDE, scored) — a 15.6 m gap.
+      It has never mattered for XC, where pilots fly well into cylinders, but
+      hike-and-fly pilots walk to the line and stop: fixes 1.5 m apart parked
+      right on the edge. That single cause explains most of the 11 X Red Rocks
+      days whose finisher count differs from xcdemon's official results (19 of
+      30 match exactly today).
+      Not done because haversine also backs total distance flown, the optimised
+      task line and the par model, so switching it moves every archived XC
+      number by ~0.1% and breaks the "matches the Python reference to machine
+      precision" claim in CONTEXT.md. Decide that deliberately.
 
 - [ ] User accounts with annotations
       Decision + options in docs/decisions/0001-user-accounts.md: stay static,
@@ -180,3 +227,6 @@
   - [x] Add 3D button to the archive links
 
   - [x] Add 3d link to user account flights 
+
+
+- [ ] Username/Password, not sign in links.

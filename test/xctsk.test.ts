@@ -5,7 +5,13 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseXcTask } from '../src/lib/xctsk.ts';
+import {
+  parseXcTask,
+  parseTaskKind,
+  TASK_KINDS,
+  TASK_KIND_LABELS,
+  DEFAULT_TASK_KIND,
+} from '../src/lib/xctsk.ts';
 
 const SAMPLE = JSON.stringify({
   earthModel: 'WGS84',
@@ -46,6 +52,28 @@ test('parseXcTask: flattens waypoint, assigns order by index, defaults type to n
   assert.equal(tp2.name, 'T1');
   assert.equal(t.turnpoints[0].type, 'TAKEOFF');
   assert.equal(t.turnpoints[3].type, 'ESS');
+});
+
+// ---- task kind ------------------------------------------------------------
+// The kind is NOT in the .xctsk (every one of these says taskType "CLASSIC"), so
+// it arrives as a manifest field or a form value — hence the tolerant reader.
+test('parseTaskKind: hike-and-fly spellings, punctuation and case', () => {
+  for (const s of ['hike-and-fly', 'Hike and Fly', 'hike_and_fly', 'HIKE & FLY', 'hikeAndFly', 'hnf', 'hike-fly']) {
+    assert.equal(parseTaskKind(s), 'hike-and-fly', s);
+  }
+});
+
+test('parseTaskKind: absent or unrecognised is an XC comp', () => {
+  for (const v of [undefined, null, '', 'xc', 'XC Comp', 'CLASSIC', 'race-to-goal', 42]) {
+    assert.equal(parseTaskKind(v), DEFAULT_TASK_KIND, String(v));
+  }
+});
+
+test('every task kind has a label, and the default is one of them', () => {
+  for (const k of TASK_KINDS) assert.ok(TASK_KIND_LABELS[k], `no label for ${k}`);
+  assert.ok(TASK_KINDS.includes(DEFAULT_TASK_KIND));
+  // Round-trips: each kind's own id reads back as itself.
+  for (const k of TASK_KINDS) assert.equal(parseTaskKind(k), k);
 });
 
 test('parseXcTask: empty/minimal input falls back to defaults', () => {

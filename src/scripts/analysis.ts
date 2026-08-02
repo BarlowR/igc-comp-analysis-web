@@ -18,6 +18,7 @@ import * as L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { optimizeTaskRoute } from '../lib/math';
 import { lostSeries } from '../lib/timetogo';
+import { DEFAULT_TASK_KIND, type TaskKind } from '../lib/xctsk';
 import {
   Competition,
   CLIMB_RATE_TICKS,
@@ -34,7 +35,13 @@ import {
 // Re-export for callers that import it from here.
 export { nameFromFile };
 
-/** Precomputed analysis results for one archived day (built server-side). */
+/**
+ * Precomputed analysis results for one archived day (built server-side by
+ * Competition.buildResults). The task kind rides along inside `map.taskKind`;
+ * everything it decides — which columns `table` has, whether `map.timeToGo` and
+ * `timeLoss` carry anything — is already baked in here, so the renderer draws
+ * what it is given rather than re-deciding.
+ */
 export interface ArchivedResults {
   table: StatsTable;
   climb: ClimbData;
@@ -125,13 +132,19 @@ export async function runAnalysis(opts: {
   statusEl?: HTMLElement;
   /** Minutes to add to UTC for local task time (from archive meta); null = UTC. */
   utcOffsetMinutes?: number | null;
+  /** XC comp (default) or hike and fly — picks the metric set. See xctsk.ts. */
+  taskKind?: TaskKind;
 }): Promise<void> {
   const { taskText, igc, resultsEl, statusEl } = opts;
   const setStatus = (s: string): void => {
     if (statusEl) statusEl.textContent = s;
   };
 
-  const comp = new Competition(taskText, opts.utcOffsetMinutes ?? null);
+  const comp = new Competition(
+    taskText,
+    opts.utcOffsetMinutes ?? null,
+    opts.taskKind ?? DEFAULT_TASK_KIND,
+  );
   for (let i = 0; i < igc.length; i++) {
     const f = igc[i];
     setStatus(`Analyzing ${i + 1}/${igc.length}: ${f.name}`);
@@ -145,14 +158,8 @@ export async function runAnalysis(opts: {
   }
 
   setStatus(`Loaded ${comp.pilots.length} pilot${comp.pilots.length === 1 ? '' : 's'}.`);
-  render(
-    resultsEl,
-    statusEl,
-    comp.buildStatsTable(),
-    comp.buildClimbData(),
-    comp.buildMapData(),
-    comp.buildTimeLoss(),
-  );
+  const { table, climb, map, timeLoss } = comp.buildResults();
+  render(resultsEl, statusEl, table, climb, map, timeLoss);
 }
 
 /**
@@ -544,6 +551,9 @@ function initMap(holder: HTMLElement, data: MapData, sel: Selection, colors: Map
  * Shared by the 2D results page and the 3D viewer so both get the identical
  * control, colours and playback. `opts.timeLost` adds the Time Lost chart
  * alongside altitude — the 3D viewer only; the 2D page shows altitude alone.
+ * Hike-and-fly days never get it, on either page: the caller says so, and the
+ * data it needs (`data.timeToGo`) isn't built for them either — see
+ * Competition.buildMapData.
  */
 /** A moment worth flagging on the time axis — today, an annotation. */
 export interface TimeMarker {
@@ -1850,13 +1860,6 @@ function timeLossRow(
   grid.append(rule, ...totalCells);
 
   panel.appendChild(grid);
-
-  const foot = document.createElement('div');
-  foot.className = 'tl-foot';
-  foot.textContent =
-    `Vs ${refLabel}: positive time = slower in that phase, and the components sum to the total gap. ` +
-    'Height is net metres gained or lost in the same phase (start compares altitude at the line).';
-  panel.appendChild(foot);
 
   // Reference block: descriptive metrics that characterise the flight but don't
   // feed the additive totals above. Neutral styling (no rust/teal, no bars) so

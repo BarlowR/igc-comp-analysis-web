@@ -166,6 +166,59 @@ main {
   }
 }
 
+/* Task type (XC comp / hike and fly): the first thing asked for on the upload
+   page, since it decides which metrics come back. Solid-bordered cards, so it
+   doesn't read as one of the two dashed drop targets below it. */
+.kind-field {
+  border: none;
+  margin: 0 0 1rem;
+  padding: 0;
+}
+
+.kind-options {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+  margin-top: 0.6rem;
+}
+
+@media (max-width: 640px) {
+  .kind-options {
+    grid-template-columns: 1fr;
+  }
+}
+
+.kind-option {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.7rem 0.85rem;
+  cursor: pointer;
+}
+
+.kind-option:hover {
+  border-color: var(--accent);
+}
+
+.kind-option input {
+  accent-color: var(--accent-strong);
+  margin: 0;
+  cursor: pointer;
+}
+
+.kind-option:has(input:checked) {
+  border-color: var(--accent);
+  background: rgba(112, 90, 144, 0.1);
+}
+
+.kind-option:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .file-field {
   display: flex;
   flex-direction: column;
@@ -488,12 +541,6 @@ table.stats tbody tr.time-loss td {
   color: var(--text);
 }
 
-.tl-foot {
-  margin-top: 9px;
-  color: var(--muted);
-  font-size: 0.85em;
-}
-
 /* Reference block: descriptive metrics that don't feed the additive totals.
    Deliberately plain — no bars, no rust/teal — so it reads as context. */
 .tl-context {
@@ -758,16 +805,236 @@ table.stats td.name {
 }
 
 /* Archive index listing. */
+/* --- Archive index: a tab per task kind, each holding one collapsible row per
+   competition. The whole thing is one card, so the comps read as a list rather
+   than as a stack of separate panels. --- */
+/* Tabs left, the signed-out 3D hint right, sharing one baseline rule. */
+.archive-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.2rem 1rem;
+  margin: -0.25rem 0 1.1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.archive .tabs {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.archive-3d-note {
+  margin: 0 0 0.5rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.archive-3d-note a {
+  color: var(--accent);
+}
+
+.archive .tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.5rem 0.95rem;
+  border: none;
+  /* Sits on the tablist's own rule, so the selected tab can overwrite it. */
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.98rem;
+  cursor: pointer;
+}
+
+.archive .tab:hover {
+  color: var(--text);
+}
+
+.archive .tab[aria-selected='true'] {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+
+.archive .tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  border-radius: 6px 6px 0 0;
+}
+
+.tab-count {
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  background: var(--panel-2);
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.archive .tab[aria-selected='true'] .tab-count {
+  background: rgba(112, 90, 144, 0.16);
+  color: var(--accent-strong);
+}
+
+.archive .tabpanel:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+  border-radius: 8px;
+}
+
 .archive-comp {
-  margin-bottom: 1.25rem;
+  border-top: 1px solid var(--border);
 }
 
-.archive-comp:last-child {
-  margin-bottom: 0;
+.archive-comp:first-of-type {
+  border-top: none;
 }
 
-.archive-comp > h2 {
-  margin: 0 0 0.75rem;
+.archive-comp > summary {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  padding: 0.7rem 0.15rem;
+  cursor: pointer;
+  list-style: none; /* Firefox */
+}
+
+/* The chevron below replaces the native marker. */
+.archive-comp > summary::-webkit-details-marker {
+  display: none;
+}
+
+.archive-comp > summary:hover .comp-name {
+  color: var(--accent-strong);
+}
+
+.archive-comp > summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  border-radius: 7px;
+}
+
+.comp-chevron {
+  flex: none;
+  align-self: center;
+  width: 0.75rem;
+  height: 0.75rem;
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform 0.15s ease;
+}
+
+.archive-comp > summary:hover .comp-chevron {
+  stroke: var(--accent-strong);
+}
+
+.archive-comp[open] > summary .comp-chevron {
+  transform: rotate(90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .comp-chevron {
+    transition: none;
+  }
+}
+
+/* Smaller than the old per-comp <h2>: a row in a list, not a section heading. */
+.comp-name {
+  font-size: 1.05rem;
+  font-weight: 400;
+}
+
+.comp-meta {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 0.82rem;
+  text-align: right;
+}
+
+.archive-comp[open] > .day-list {
+  padding-bottom: 0.9rem;
+}
+
+/* Your own note on the whole comp, above that comp's tasks. Hidden until
+   scripts/archive-notes.ts finds a session, so `hidden` has to beat the block.
+   The dashed rule sits below it, separating the note from the task grid — the
+   comp's own summary row is the boundary above. */
+.comp-notes {
+  margin: 0 0 0.9rem;
+  padding-bottom: 0.85rem;
+  border-bottom: 1px dashed var(--border);
+}
+
+.comp-notes[hidden] {
+  display: none;
+}
+
+/* The whole of the empty state: no heading, no box, just a way in. */
+.comp-notes-add {
+  padding: 0.25rem 0.6rem;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.comp-notes-add:hover,
+.comp-notes-add:focus-visible {
+  border-color: var(--border);
+  color: var(--accent-strong);
+}
+
+.comp-notes-add[hidden] {
+  display: none;
+}
+
+.comp-notes-editor[hidden] {
+  display: none;
+}
+
+.comp-notes-text {
+  display: block;
+  width: 100%;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.9rem;
+  line-height: 1.45;
+  resize: vertical;
+}
+
+.comp-notes-text:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* Autosave has no button to report to, so the state lives here: a quiet line
+   under the box. Holds its height whether or not there's anything to say, so
+   the layout doesn't twitch on every keystroke. */
+.comp-notes-status {
+  display: block;
+  min-height: 1.4em;
+  margin-top: 0.2rem;
+  text-align: right;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.comp-notes-status.error {
+  color: #9b2c2c;
 }
 
 .day-list {
@@ -779,28 +1046,97 @@ table.stats td.name {
   gap: 0.75rem;
 }
 
-.day-link {
-  display: block;
-  text-decoration: none;
-  color: var(--text);
+/* The card is the <li>, not the link: it holds two links (2D face, 3D corner),
+   and an <a> can't contain another. Grid columns keep them from ever
+   overlapping, however narrow the card gets. */
+.day-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 0.5rem;
   background: var(--panel-2);
   border: 1px solid var(--border);
   border-radius: 9px;
   padding: 0.8rem 1rem;
 }
 
-.day-link:hover {
+.day-card:hover {
   border-color: var(--accent);
 }
 
+.day-link {
+  display: block;
+  min-width: 0;
+  text-decoration: none;
+  color: var(--text);
+}
+
+/* Stretched link: the whole card opens the 2D analysis, while the 3D link
+   stays a separate target above it (z-index below). */
+.day-link::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+
+/* Name left, note emblem right — the emblem stays pinned to the card's edge
+   however long the task name is, and a long name ellipsises rather than
+   pushing it off. */
 .day-link .day-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.4rem;
   font-weight: 400;
+}
+
+.day-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* "✎ 3" on a task this account has notes on. A marker, not a control: the card
+   already goes to the analysis and the corner to the 3D viewer. */
+.day-note-mark {
+  flex: none;
+  padding: 0.02rem 0.4rem;
+  border-radius: 999px;
+  background: rgba(112, 90, 144, 0.16);
+  color: var(--accent-strong);
+  font-size: 0.72rem;
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+}
+
+.day-note-mark[hidden] {
+  display: none;
 }
 
 .day-link .day-meta {
   color: var(--muted);
   font-size: 0.8rem;
   margin-top: 0.2rem;
+}
+
+.day-3d {
+  position: relative; /* lifts it out from under .day-link::after */
+  z-index: 1;
+  justify-self: end;
+  color: var(--accent);
+  font-size: 0.78rem;
+  line-height: 1.4;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.day-3d:hover,
+.day-3d:focus-visible {
+  color: var(--accent-strong);
+  text-decoration: underline;
 }
 
 .archive-empty {
@@ -830,6 +1166,24 @@ table.stats td.name {
 
   .card h2 {
     font-size: 1.25rem;
+  }
+
+  /* The comp's date range won't share a line with its name on a phone, so it
+     drops under it and the row becomes two lines instead of a squeeze. */
+  .archive-comp > summary {
+    flex-wrap: wrap;
+    row-gap: 0.1rem;
+  }
+
+  .comp-meta {
+    width: 100%;
+    margin-left: 1.5em; /* clears the chevron, so it lines up under the name */
+    text-align: left;
+  }
+
+  .archive .tab {
+    padding: 0.5rem 0.7rem;
+    font-size: 0.92rem;
   }
 
   /* Trade some height for a workable aspect ratio on tall phone screens. */

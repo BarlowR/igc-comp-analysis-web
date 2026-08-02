@@ -1,0 +1,26 @@
+{
+  "comp": "x-red-rocks-2024",
+  "compLabel": "2024 X Red Rocks",
+  "day": "day566",
+  "dayLabel": "Monroe, Utah — Sep 25",
+  "date": "2024-09-25",
+  "title": "2024-09-25 - Monroe, Utah - Hike and Fly XC Task",
+  "utcOffsetMinutes": -360,
+  "taskKind": "hike-and-fly",
+  "taskFile": "task.xctsk",
+  "igcFiles": [
+    "Anna Berger.1087.14.igc",
+    "Ben Abruzzo.319.10.igc",
+    "Ben Walker.755.2.igc",
+    "David Chen.858.13.igc",
+    "Glenn Steenackers.1081.11.igc",
+    "Jared Scheid.780.12.igc",
+    "Mark Herbison.979.1.igc",
+    "Reavis Sutphin-Gray.116.5.igc",
+    "Ryan Friedman.786.6.igc",
+    "Samuel Inouye.861.7.igc",
+    "Sebrand Warren .670.4.igc",
+    "Tanguy Renoud-Goud.845.8.igc",
+    "Tim Rochas .1088.9.igc"
+  ]
+}

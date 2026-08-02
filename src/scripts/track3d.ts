@@ -288,8 +288,12 @@ async function main(): Promise<void> {
 
   // The shared altitude-plot scrubber, mounted into the bottom overlay. Play
   // sweeps the day in ~2.5 min (much slower than the 2D page's ~30s) so the 3D
-  // flythrough is watchable.
-  const timeline = mountTimeline($('timeAnchor'), mapData, sel, colors, frame, 150_000);
+  // flythrough is watchable. This is the one view that carries the Time Lost
+  // chart, and only for an XC comp — a hike-and-fly day has no par model to be
+  // lost against, so the selector goes back to altitude alone.
+  const timeline = mountTimeline($('timeAnchor'), mapData, sel, colors, frame, 150_000, {
+    timeLost: mapData.taskKind !== 'hike-and-fly',
+  });
 
   // Notes against a moment on a pilot's flight: pins on the track, text in the
   // left panel, pennants on the scrubber. No-ops when accounts are off or nobody
