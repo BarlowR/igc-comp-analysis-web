@@ -124,9 +124,11 @@ export function renderArchivedResults(opts: {
 /**
  * Run the full analysis over one task + a set of IGC tracklogs, rendering into
  * `resultsEl`. Progress and a summary are written to `statusEl` when provided.
+ * A null `taskText` analyzes the tracklogs alone (free flight): no turnpoints,
+ * no completion/start-gate metrics, no Time Lost model.
  */
 export async function runAnalysis(opts: {
-  taskText: string;
+  taskText: string | null;
   igc: { name: string; text: string }[];
   resultsEl: HTMLElement;
   statusEl?: HTMLElement;
@@ -294,6 +296,9 @@ function render(
     statusEl.textContent += `  Showing the top ${topN} of ${ordered.length} pilots by default — use the “deselected pilots” section or the checkboxes to show more.`;
   }
 
+  // A free-flight run (no task) has no completed/incomplete split — everyone
+  // lands in `incomplete` — so the one group gets a neutral title.
+  const freeFlight = table.hasTask === false;
   if (table.completed.length || climb.completed.length) {
     resultsEl.appendChild(group('Completed Task', table, table.completed, true, climb.completed, sel, colors, timeLoss));
   }
@@ -301,7 +306,8 @@ function render(
     resultsEl.appendChild(mapSection(mapData, sel, colors, threeDUrl));
   }
   if (table.incomplete.length || climb.incomplete.length) {
-    resultsEl.appendChild(group('Did Not Complete Task', table, table.incomplete, false, climb.incomplete, sel, colors, timeLoss));
+    const title = freeFlight ? 'Flights' : 'Did Not Complete Task';
+    resultsEl.appendChild(group(title, table, table.incomplete, false, climb.incomplete, sel, colors, timeLoss));
   }
   // On the next frame, not synchronously: group() builds each chart and runs its
   // first syncChart() while the card is still detached, so the chart has no size
@@ -326,7 +332,7 @@ function mapSection(
   const head = document.createElement('div');
   head.className = 'map-head';
   const h = document.createElement('h2');
-  h.textContent = 'Task & Tracks';
+  h.textContent = data.turnpoints.length ? 'Task & Tracks' : 'Tracks';
   head.appendChild(h);
   if (threeDUrl) {
     const link = document.createElement('a');

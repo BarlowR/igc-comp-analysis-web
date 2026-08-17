@@ -240,3 +240,67 @@ test('Competition: hike-and-fly ships the basic metric set and no Time Lost data
     }
   }
 });
+
+// ---- free flight: no task, tracklogs only ---------------------------------
+// A null task is the /analyze "no task file" mode: stats run over the whole
+// flight, the task-only columns drop out of whichever kind subset is in force,
+// and the map/τ layers that need turnpoints are simply absent.
+
+/** Minimal synthetic IGC: `n` fixes at 1 Hz, gently climbing, drifting north. */
+function syntheticIgc(pilot: string, n = 60): string {
+  const pad = (v: number, w: number): string => String(v).padStart(w, '0');
+  const lines = ['AXXX001', 'HFDTE050126', `HFPLTPILOT:${pilot}`];
+  for (let i = 0; i < n; i++) {
+    const alt = 1000 + i;
+    const latMin = 10000 + i * 5; // ~9 m/fix northward
+    lines.push(`B12${pad(Math.floor(i / 60), 2)}${pad(i % 60, 2)}37${pad(latMin, 5)}N12200000WA${pad(alt, 5)}${pad(alt, 5)}`);
+  }
+  return lines.join('\n');
+}
+
+test('Competition: null task (free flight) drops task columns and the task/τ layers', () => {
+  const comp = new Competition(null);
+  comp.addPilot(syntheticIgc('Jane Roe'), 'fallback');
+  comp.addPilot(syntheticIgc('John Doe'), 'fallback2');
+
+  const table = comp.buildStatsTable();
+  assert.equal(table.hasTask, false);
+  for (const h of ['Completion Time (s)', 'Start Altitude MSL (m)', 'Finish Altitude MSL (m)', 'Start After Gate (s)']) {
+    assert.ok(!table.headers.includes(h), `task-only column survived: ${h}`);
+  }
+  assert.equal(table.headers.length, COMP_SUBSET.length - 4);
+  // Nobody can complete a task that doesn't exist; rows land in `incomplete`
+  // and each row is aligned with the reduced header set.
+  assert.equal(table.completed.length, 0);
+  assert.equal(table.incomplete.length, 2);
+  for (const row of table.incomplete) assert.equal(row.length, table.headers.length);
+
+  const map = comp.buildMapData();
+  assert.equal(map.turnpoints.length, 0);
+  assert.equal(map.tracks.length, 2);
+  assert.equal(map.startMs, null);
+  assert.equal(map.timeToGo, null);
+  assert.ok(map.tracks.every((tr) => tr.tau === undefined));
+  // The full track survives (no gate to crop against).
+  assert.ok(map.tracks[0].points.length > 0);
+  assert.equal(map.tracks[0].points.length, map.tracks[0].times.length);
+
+  // Whole-flight stats still computed: the synthetic flight climbs throughout.
+  const jane = comp.pilots.find((p) => p.name === 'Jane Roe')!;
+  assert.ok(num(jane.stats.comp_total_meters_climbed) > 0);
+  assert.equal(jane.stats.completed, false);
+  assert.equal(jane.stats.completion_time, null);
+  assert.equal(jane.stats.comp_seconds_after_gate, null);
+
+  assert.equal(comp.buildTimeLoss().winner, null);
+});
+
+test('Competition: null task composes with the hike-and-fly subset', () => {
+  const comp = new Competition(null, null, 'hike-and-fly');
+  comp.addPilot(syntheticIgc('Jane Roe'), 'fallback');
+  const table = comp.buildStatsTable();
+  // The hike-and-fly subset minus its one task-only column (completion time).
+  assert.equal(table.headers.length, HIKE_AND_FLY_SUBSET.length - 1);
+  assert.ok(!table.headers.includes('Completion Time (s)'));
+  assert.equal(comp.buildMapData().taskKind, 'hike-and-fly');
+});

@@ -74,6 +74,18 @@ export function metricsFor(kind: TaskKind): MetricColumn[] {
   return kind === 'hike-and-fly' ? HIKE_AND_FLY_SUBSET : COMP_SUBSET;
 }
 
+/**
+ * Columns that only mean anything against a task (gate, SSS, ESS). A free
+ * flight (no task) drops them from whichever kind subset is in force;
+ * everything else is computed over the whole flight and keeps its meaning.
+ */
+const TASK_ONLY_KEYS = new Set([
+  'completion_time',
+  'comp_start_msl',
+  'comp_finish_msl',
+  'comp_seconds_after_gate',
+]);
+
 const CLIMB_RATE_LABELS = ['1ms', '2ms', '3ms', '4ms', '5ms', '>5ms'];
 export const CLIMB_RATE_TICKS = ['1 m/s', '2 m/s', '3 m/s', '4 m/s', '5 m/s', '>5 m/s'];
 
@@ -188,6 +200,9 @@ export interface StatsTable {
   dirs: GradientDir[];
   completed: TableCell[][];
   incomplete: TableCell[][];
+  /** False for a free-flight (no task) analysis; absent (older archived
+   * results) means a task was present. Drives the group titles in the UI. */
+  hasTask?: boolean;
 }
 
 export interface ClimbSeries {
@@ -283,7 +298,8 @@ export interface TimeLossData {
 }
 
 export class Competition {
-  task: XcTask;
+  /** Null = free-flight analysis: tracklogs only, no task to score against. */
+  task: XcTask | null;
   pilots: PilotRow[] = [];
   /** Minutes to add to UTC for local task time (from archive meta); null = UTC. */
   utcOffsetMinutes: number | null;
@@ -292,11 +308,11 @@ export class Competition {
   kind: TaskKind;
 
   constructor(
-    taskText: string,
+    taskText: string | null,
     utcOffsetMinutes: number | null = null,
     kind: TaskKind = DEFAULT_TASK_KIND,
   ) {
-    this.task = parseXcTask(taskText);
+    this.task = taskText === null ? null : parseXcTask(taskText);
     this.utcOffsetMinutes = utcOffsetMinutes;
     this.kind = kind;
   }
@@ -381,7 +397,7 @@ export class Competition {
   // ---- map view ----------------------------------------------------------
 
   buildMapData(): MapData {
-    const turnpoints: MapTurnpoint[] = this.task.turnpoints.map((tp) => ({
+    const turnpoints: MapTurnpoint[] = (this.task?.turnpoints ?? []).map((tp) => ({
       lat: tp.lat,
       lon: tp.lon,
       radius: tp.radius,
@@ -397,9 +413,11 @@ export class Competition {
     // to those durations describes nothing. Skipping it here is also what removes
     // the Time Lost chart downstream (see mountTimeline) and keeps the per-track
     // τ arrays out of the day JSON.
+    // A free flight (no task, so no turnpoints) skips the model wholesale —
+    // buildGeom needs at least one turnpoint to anchor its plane.
     const modelsPar = this.kind === 'xc';
-    const geom = buildGeom(turnpoints);
-    const taskDist = geom.cx.length >= 2 ? taskDistanceM(geom) : 0;
+    const geom = turnpoints.length ? buildGeom(turnpoints) : null;
+    const taskDist = geom && geom.cx.length >= 2 ? taskDistanceM(geom) : 0;
     // Par is measured from the day's fastest PAR_N finishers: M = median climb,
     // V_cc = optimised task dist ÷ median completion (a day stat — τ derives its
     // own pace from Vg/g/M plus the pace fit below). h_fin = min crossing
@@ -416,7 +434,8 @@ export class Competition {
     const medComp = median(compTimes);
     const Vcc = medComp > 0 ? taskDist / medComp : 0;
     const hFin = finishes.length ? Math.min(...finishes) : 0;
-    const hasTau = modelsPar && geom.cx.length >= 2 && M > 0 && Vcc > 0 && finishers.length > 0;
+    const hasTau =
+      modelsPar && geom !== null && geom.cx.length >= 2 && M > 0 && Vcc > 0 && finishers.length > 0;
 
     // Per-pilot D_rem + smoothed height (used for τ, finalGlide, and the SSS-exit
     // altitude), computed once so the ghost anchor h_ref can be taken across the fleet.
@@ -428,7 +447,7 @@ export class Competition {
     const perPilot = this.pilots
       .filter((p) => p.track.length > 0)
       .map((p) => {
-        const rem = hasTau ? remainingSeries(geom, p.track) : [];
+        const rem = hasTau && geom ? remainingSeries(geom, p.track) : [];
         const h = hasTau ? smoothAlt(p.trackTimes, p.trackAlt) : [];
         const startCrossMs = startCrossOf(p);
         let startExitAlt: number | null = null;
@@ -531,13 +550,16 @@ export class Competition {
       .filter((p) => p.completed)
       .sort((a, b) => num(a.stats.completion_time) - num(b.stats.completion_time));
     const incomplete = this.pilots.filter((p) => !p.completed);
-    const columns = metricsFor(this.kind);
+    const columns = this.task
+      ? metricsFor(this.kind)
+      : metricsFor(this.kind).filter((c) => !TASK_ONLY_KEYS.has(c.key));
 
     return {
       headers: columns.map((c) => c.label),
       dirs: columns.map((c) => c.dir),
       completed: this.buildRows(completed, columns),
       incomplete: this.buildRows(incomplete, columns),
+      hasTask: this.task !== null,
     };
   }
 
@@ -719,7 +741,7 @@ function goalCrossingMs(flight: IgcFlight, task: XcTask, fromMs: number): number
  */
 function cropAndDownsample(
   flight: IgcFlight,
-  task: XcTask,
+  task: XcTask | null,
 ): { track: [number, number][]; trackTimes: number[]; trackAlt: number[] } {
   const { lat, lon, timeMs, gnssAlt } = flight.df;
   const n = timeMs.length;
@@ -731,7 +753,7 @@ function cropAndDownsample(
     flight.stats.completed === true && flight.compDf?.timeMs.length
       ? flight.compDf.timeMs[flight.compDf.timeMs.length - 1]
       : null;
-  const goalMs = essMs !== null ? goalCrossingMs(flight, task, essMs) : null;
+  const goalMs = task !== null && essMs !== null ? goalCrossingMs(flight, task, essMs) : null;
   const endMs = goalMs ?? timeMs[n - 1];
 
   // Drop pilots whose flight ended before the start — they flew and landed

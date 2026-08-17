@@ -366,8 +366,28 @@ export class IgcFlight {
 
   // ---- competition window ------------------------------------------------
 
-  /** Port of build_computed_comp_metrics + _track_task_progress. */
-  buildCompMetrics(task: XcTask): void {
+  /**
+   * Port of build_computed_comp_metrics + _track_task_progress.
+   *
+   * A null task means a free flight (tracklog only): there is no start gate and
+   * no turnpoints, so the "comp" window is the whole flight and every
+   * task-relative stat (completion, start/finish altitude, seconds after gate)
+   * stays null. All other metrics are computed identically.
+   */
+  buildCompMetrics(task: XcTask | null): void {
+    if (task === null) {
+      this.startGateMs = null;
+      this.sssExitIdx = null;
+      const comp = sliceColumns(this.df, 0);
+      this.calcCumulative(comp);
+      comp.nextWaypointName = new Array<string>(comp.timeMs.length).fill('');
+      this.compDf = comp;
+      this.calculateStats(comp);
+      this.stats.comp_start_msl = null;
+      this.stats.comp_seconds_after_gate = null;
+      return;
+    }
+
     const startMs = this.compStartMs(task);
     this.startGateMs = startMs;
 

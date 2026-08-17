@@ -25,10 +25,13 @@ function selectedTaskKind(): TaskKind {
 }
 
 function refreshState(): void {
-  taskName.textContent = taskInput.files?.[0]?.name ?? 'No task file selected';
+  // The task is optional: with no .xctsk the tracklogs are analyzed alone
+  // (free flight) — no completion/start-gate metrics or Time Lost model.
+  taskName.textContent =
+    taskInput.files?.[0]?.name ?? 'No task file — tracklogs will be analyzed on their own';
   const n = igcInput.files?.length ?? 0;
   igcCount.textContent = n === 0 ? 'No IGC files selected' : `${n} IGC file${n === 1 ? '' : 's'} selected`;
-  analyzeBtn.disabled = !(taskInput.files?.length && n);
+  analyzeBtn.disabled = n === 0;
 }
 
 taskInput.addEventListener('change', refreshState);
@@ -36,15 +39,15 @@ igcInput.addEventListener('change', refreshState);
 analyzeBtn.addEventListener('click', () => void analyze());
 
 async function analyze(): Promise<void> {
-  const taskFile = taskInput.files?.[0];
+  const taskFile = taskInput.files?.[0] ?? null;
   const igcFiles = Array.from(igcInput.files ?? []);
-  if (!taskFile || igcFiles.length === 0) return;
+  if (igcFiles.length === 0) return;
 
   analyzeBtn.disabled = true;
-  statusEl.textContent = 'Reading task…';
+  statusEl.textContent = taskFile ? 'Reading task…' : 'Reading tracklogs…';
 
   try {
-    const taskText = await taskFile.text();
+    const taskText = taskFile ? await taskFile.text() : null;
     const igc = await Promise.all(igcFiles.map(async (f) => ({ name: f.name, text: await f.text() })));
     await runAnalysis({ taskText, igc, resultsEl: results, statusEl, taskKind: selectedTaskKind() });
   } catch (err) {
