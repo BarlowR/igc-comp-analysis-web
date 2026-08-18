@@ -68,20 +68,20 @@ const KIND_OPTIONS = [
          signed in, a name + save form (src/scripts/app.ts drives both). -->
     <section class="card save-card" id="save-card" hidden>
       <form id="save-form" class="account-form save-form" hidden>
-        <label class="field-label" for="save-name">Save this analysis to your account</label>
-        <input id="save-name" type="text" maxlength="120" required placeholder="Task name, e.g. Dunlap task 2" />
+        <label class="field-label" for="save-name">Save to your account</label>
+        <input id="save-name" type="text" maxlength="120" required placeholder="Task name" />
         {/* File the task under one of the account's comps — or start a new one,
             which reveals the name input. app.ts fills the options in. */}
         <label class="field-label" for="save-comp">Comp</label>
         <select id="save-comp">
-          <option value="">No comp — standalone task</option>
+          <option value="">No comp</option>
           <option value="__new__">＋ New comp…</option>
         </select>
-        <input id="save-comp-name" type="text" maxlength="120" placeholder="New comp name, e.g. Dunlap Fly-in 2026" hidden />
+        <input id="save-comp-name" type="text" maxlength="120" placeholder="New comp name" hidden />
         <button id="save-submit" type="submit" class="account-btn">Save task</button>
       </form>
       <p id="save-signin" class="field-hint" hidden>
-        <a href="/account?next=/analyze">Sign in</a> to save this analysis to your account.
+        <a href="/account?next=/analyze">Sign in</a> to save this analysis.
       </p>
       <p id="save-status" class="form-status" role="status" aria-live="polite"></p>
     </section>

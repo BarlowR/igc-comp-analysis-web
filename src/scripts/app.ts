@@ -177,7 +177,7 @@ saveForm.addEventListener('submit', async (event) => {
   if (!name) return;
 
   saveSubmit.disabled = true;
-  saveStatus.textContent = 'Saving… (uploading tracklogs)';
+  saveStatus.textContent = 'Uploading tracklogs…';
   saveStatus.className = 'form-status';
   try {
     // Loaded on demand: pulls in supabase-js, which the analyze page otherwise
@@ -214,11 +214,8 @@ saveForm.addEventListener('submit', async (event) => {
     saveStatus.replaceChildren('Saved. ');
     const link = document.createElement('a');
     link.href = `/saved?id=${comp.id}`;
-    link.textContent = 'Open it';
+    link.textContent = 'Open it →';
     saveStatus.appendChild(link);
-    saveStatus.appendChild(
-      document.createTextNode(' or fly it in 3D from the map card below. It is also on the archive page.'),
-    );
   } catch (err) {
     console.error(err);
     saveStatus.className = 'form-status error';

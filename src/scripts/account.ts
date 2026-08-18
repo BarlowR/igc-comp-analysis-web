@@ -58,7 +58,7 @@ function describe(err: unknown): string {
   // point at the two ways out. Older accounts signed in by emailed link and
   // have no password until they set one.
   if (/invalid login credentials/i.test(message)) {
-    return 'Wrong email or password. If you signed up before passwords existed, use "Email me a sign-in link" and set a password from your account, or use "Forgot password?".';
+    return 'Wrong email or password.';
   }
   return message || 'Something went wrong.';
 }
@@ -211,7 +211,7 @@ async function init() {
     } else if (event === 'PASSWORD_RECOVERY') {
       recovering = true;
       void renderSignedIn(next?.user?.email ?? null).then(() => {
-        setStatus(passwordStatus, 'You followed a reset link — choose a new password below.', 'ok');
+        setStatus(passwordStatus, 'Choose a new password below.', 'ok');
         newPasswordInput?.focus();
       });
     } else if (next?.user && event === 'SIGNED_IN') {
@@ -295,7 +295,7 @@ signUpButton?.addEventListener('click', async () => {
     if (data.session) {
       setStatus(signInStatus, ''); // confirmation off — SIGNED_IN takes it from here
     } else {
-      setStatus(signInStatus, `Almost there — check ${email} for a confirmation link.`, 'ok');
+      setStatus(signInStatus, `Check ${email} for a confirmation link.`, 'ok');
     }
   } catch (err) {
     setStatus(signInStatus, describe(err), 'error');

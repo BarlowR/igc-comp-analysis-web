@@ -296,7 +296,7 @@ function render(
   // charts (see buildPilotSelection for the top-20 default rule).
   const { ordered, sel, colors, truncated, topN } = buildPilotSelection(table, mapData);
   if (truncated && statusEl) {
-    statusEl.textContent += `  Showing the top ${topN} of ${ordered.length} pilots by default — use the “deselected pilots” section or the checkboxes to show more.`;
+    statusEl.textContent += `  Showing the top ${topN} of ${ordered.length} pilots — use the “deselected pilots” section to show more.`;
   }
 
   // A free-flight day has no completion concept: every pilot is in the

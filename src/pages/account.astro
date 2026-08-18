@@ -24,7 +24,7 @@ import Base from '../layouts/Base.astro';
           the account service is slow or unreachable, and a bare hint gives you
           nothing to do about it. */}
       <p id="loading-slow" class="field-hint" hidden>
-        Still going! This is taking longer than it should.
+        This is taking longer than it should.
         <button id="loading-skip" class="account-btn small" type="button">Continue to sign-in</button>
       </p>
     </section>
@@ -33,8 +33,7 @@ import Base from '../layouts/Base.astro';
       <h2>Sign In / Sign Up</h2>
       <form id="signin-form" class="account-form">
         <label class="field-label" for="signin-email">Email</label>
-        <input id="signin-email" type="email" name="email" required autocomplete="email"
-          placeholder="you@example.com" />
+        <input id="signin-email" type="email" name="email" required autocomplete="email" />
         <label class="field-label" for="signin-password">Password</label>
         <input id="signin-password" type="password" name="password" required
           autocomplete="current-password" minlength="8" />
@@ -80,7 +79,6 @@ import Base from '../layouts/Base.astro';
 
       <h3>Saved comps</h3>
       <p class="field-hint">
-        Days you've analyzed and saved from the <a href="/analyze">analyze page</a>.
         <a href="/saved">View your saved comps →</a>
       </p>
 
