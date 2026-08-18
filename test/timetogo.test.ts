@@ -476,6 +476,12 @@ test('buildGeom: SSS exit point is on its ring toward the first turnpoint', () =
   assert.ok(close(g.px[0] - g.cx[0], 1000, 1) && close(g.py[0] - g.cy[0], 0, 1), `SSS exit at (${g.px[0] - g.cx[0]},${g.py[0] - g.cy[0]})`);
 });
 
+test('buildGeom: no turnpoints (a free-flight day) is an empty geom, not a crash', () => {
+  const g = buildGeom([]);
+  assert.equal(g.cx.length, 0);
+  assert.equal(taskDistanceM(g), 0);
+});
+
 test('taskDistanceM: empty task is zero', () => {
   assert.equal(taskDistanceM(mkTask([])), 0);
 });

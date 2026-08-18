@@ -71,16 +71,29 @@ function daysForClaims(group: PilotClaim[], pilot: RosterPilot | undefined): Ros
     .filter((d) => d && (ownedComps.has(d.comp) || ownedDays.has(`${d.comp}/${d.day}`)));
 }
 
+/**
+ * Where a task's 2D and 3D views live. Notes made in the saved-comp viewer are
+ * keyed (comp: 'saved', day: <comp id>) — see track3d.ts — and those pages are
+ * query-addressed, not archive paths.
+ */
+function dayUrls(day: { comp: string; day: string }): { base: string; threeD: string } {
+  if (day.comp === 'saved') {
+    return { base: `/saved?id=${day.day}`, threeD: `/saved/3d?id=${day.day}` };
+  }
+  return { base: `/archive/${day.comp}/${day.day}`, threeD: `/archive/${day.comp}/${day.day}/3d` };
+}
+
 /** A task row: its name, date and 3D link. Callers append their own extras. */
 function dayRow(day: RosterDay): HTMLLIElement {
+  const urls = dayUrls(day);
   const item = el('li', 'claim-day');
   const link = el('a', 'claim-day-link', day.dayLabel);
-  link.href = `/archive/${day.comp}/${day.day}`;
+  link.href = urls.base;
   item.appendChild(link);
   if (day.date) item.appendChild(el('span', 'claim-day-date', day.date));
 
   const view3d = el('a', 'claim-day-3d', '◈ 3D');
-  view3d.href = `/archive/${day.comp}/${day.day}/3d`;
+  view3d.href = urls.threeD;
   view3d.title = 'Fly this task in 3D';
   item.appendChild(view3d);
   return item;
@@ -89,7 +102,7 @@ function dayRow(day: RosterDay): HTMLLIElement {
 /** The "N notes" pill linking into the 3D view's notes panel. */
 function notesPill(day: { comp: string; day: string }, count: number): HTMLAnchorElement {
   const notes = el('a', 'claim-day-notes', `${count} note${count === 1 ? '' : 's'}`);
-  notes.href = `/archive/${day.comp}/${day.day}/3d#notes`;
+  notes.href = `${dayUrls(day).threeD}#notes`;
   notes.title = 'Open the 3D view with your notes';
   return notes;
 }
@@ -190,7 +203,21 @@ async function paintAnnotations(): Promise<void> {
     node.hidden = false;
   }
 
-  renderAnnotated([...annotated.values()].filter((d) => !claimedKeys.has(`${d.comp}/${d.day}`)));
+  const unclaimed = [...annotated.values()].filter((d) => !claimedKeys.has(`${d.comp}/${d.day}`));
+
+  // Notes made in the saved-comp viewer are keyed (comp: 'saved', day: <comp
+  // id>). The roster knows nothing about those, so their display names come
+  // from the account's saved-comps list — fetched only when such a note exists.
+  let savedNames = new Map<string, string>();
+  if (unclaimed.some((d) => d.comp === 'saved')) {
+    try {
+      const { listMyComps } = await import('../lib/saved-comps');
+      savedNames = new Map((await listMyComps()).map((c) => [c.id, c.name]));
+    } catch {
+      // The raw id still renders; a broken name lookup shouldn't hide the note.
+    }
+  }
+  renderAnnotated(unclaimed, savedNames);
 }
 
 /** Roster order for a "comp/day", so annotated tasks list the way claims do. */
@@ -201,7 +228,7 @@ function rosterIndex(day: AnnotatedDay): number {
 }
 
 /** "Flights you've annotated": notes on tasks no claim of this account covers. */
-function renderAnnotated(days: AnnotatedDay[]) {
+function renderAnnotated(days: AnnotatedDay[], savedNames: Map<string, string>) {
   if (!annotatedEl || !annotatedSection) return;
   annotatedSection.toggleAttribute('hidden', days.length === 0);
   annotatedEl.replaceChildren();
@@ -211,14 +238,24 @@ function renderAnnotated(days: AnnotatedDay[]) {
   const list = el('ul', 'claim-days');
   let lastComp = '';
   for (const entry of [...days].sort((a, b) => rosterIndex(a) - rosterIndex(b))) {
-    const day = roster?.days.find((d) => d.comp === entry.comp && d.day === entry.day) ?? {
-      // Fall back to the raw ids for a task that has left the archive.
-      comp: entry.comp,
-      compLabel: entry.comp,
-      day: entry.day,
-      dayLabel: entry.day,
-      date: null,
-    };
+    const day =
+      entry.comp === 'saved'
+        ? {
+            // A saved comp: named from the account's own list, never the roster.
+            comp: entry.comp,
+            compLabel: 'Saved comps',
+            day: entry.day,
+            dayLabel: savedNames.get(entry.day) ?? entry.day,
+            date: null,
+          }
+        : (roster?.days.find((d) => d.comp === entry.comp && d.day === entry.day) ?? {
+            // Fall back to the raw ids for a task that has left the archive.
+            comp: entry.comp,
+            compLabel: entry.comp,
+            day: entry.day,
+            dayLabel: entry.day,
+            date: null,
+          });
 
     if (day.comp !== lastComp) {
       lastComp = day.comp;

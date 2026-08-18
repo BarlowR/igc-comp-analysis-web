@@ -402,6 +402,26 @@ export class IgcFlight {
     }
   }
 
+  /**
+   * Free-flight counterpart of buildCompMetrics: the same `comp_*` stats, but
+   * over the WHOLE flight — no gate, no task progress, no completion. What a
+   * task can't give it is explicitly null: the start-crossing stats, and
+   * completion (calculateStats finds no COMPLETED marker, so completed stays
+   * false and completion_time null).
+   */
+  buildFreeMetrics(): void {
+    this.startGateMs = null;
+    this.sssExitIdx = null;
+
+    const whole = sliceColumns(this.df, 0);
+    this.calcCumulative(whole);
+    this.compDf = whole;
+    this.calculateStats(whole);
+
+    this.stats.comp_start_msl = null;
+    this.stats.comp_seconds_after_gate = null;
+  }
+
   private compStartMs(task: XcTask): number {
     const gate = task.sss.timeGates[0]; // e.g. "19:30:00Z"
     const [h, m, s] = gate.replace('Z', '').split(':').map((p) => parseInt(p, 10));

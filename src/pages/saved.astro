@@ -1,0 +1,36 @@
+---
+// Saved comps: analyses a signed-in user has kept from the analyze page.
+// Everything is client-rendered — the site is static, so who is signed in and
+// which comps they own only exist in the browser. Without ?id= this lists the
+// account's comps; with ?id=<uuid> it renders that comp from its cached
+// results, offering a recompute when the analysis engine has moved on
+// (src/scripts/saved.ts).
+import Base from '../layouts/Base.astro';
+---
+
+<Base title="Saved comps — Outclimb.app">
+  <header class="hero">
+    <h1 id="saved-title">Saved comps</h1>
+  </header>
+
+  <main>
+    <section class="card account-card" id="saved-list-card" hidden>
+      <div id="saved-list" class="claims-list"></div>
+    </section>
+
+    <!-- Shown on a comp whose cached results predate the current engine. -->
+    <section class="card save-card" id="stale-card" hidden>
+      <p class="field-hint">
+        The analysis has improved since this comp was saved.
+        <button id="recompute-btn" type="button" class="account-btn small">Recompute</button>
+      </p>
+    </section>
+
+    <p id="status" class="status"></p>
+    <div id="results" class="results"></div>
+  </main>
+
+  <script>
+    import '../scripts/saved.ts';
+  </script>
+</Base>

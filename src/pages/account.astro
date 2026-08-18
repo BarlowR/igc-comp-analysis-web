@@ -31,16 +31,29 @@ import Base from '../layouts/Base.astro';
 
     <section class="card account-card" id="account-signed-out" hidden>
       <h2>Sign In / Sign Up</h2>
-      {/* Kept: which sender to look for is the one thing the flow can't show
-          you, and it's why people give up waiting. */}
-      <p class="field-hint">The link arrives from "Supabase Auth".</p>
       <form id="signin-form" class="account-form">
         <label class="field-label" for="signin-email">Email</label>
         <input id="signin-email" type="email" name="email" required autocomplete="email"
           placeholder="you@example.com" />
-        <button id="signin-submit" type="submit" class="account-btn">Email me a link</button>
+        <label class="field-label" for="signin-password">Password</label>
+        <input id="signin-password" type="password" name="password" required
+          autocomplete="current-password" minlength="8" />
+        <div class="account-actions-row">
+          <button id="signin-submit" type="submit" class="account-btn">Sign in</button>
+          <button id="signup-submit" type="button" class="account-btn ghost">Create account</button>
+        </div>
       </form>
       <p id="signin-status" class="form-status" role="status" aria-live="polite"></p>
+      {/* Both fall back to email: reset for a forgotten password, and the old
+          magic-link flow for accounts from before passwords existed (they have
+          no password until they set one under Account → Change password). The
+          email arrives from "Supabase Auth" — which sender to look for is the
+          one thing the flow can't show you, and why people give up waiting. */}
+      <p class="field-hint account-alt">
+        <button id="forgot-password" type="button" class="linklike">Forgot password?</button>
+        ·
+        <button id="magic-link" type="button" class="linklike">Email me a sign-in link instead</button>
+      </p>
     </section>
 
     <section class="card account-card" id="account-signed-in" hidden>
@@ -65,6 +78,14 @@ import Base from '../layouts/Base.astro';
 
       <div class="account-divider"></div>
 
+      <h3>Saved comps</h3>
+      <p class="field-hint">
+        Days you've analyzed and saved from the <a href="/analyze">analyze page</a>.
+        <a href="/saved">View your saved comps →</a>
+      </p>
+
+      <div class="account-divider"></div>
+
       <h3>Account</h3>
       <p class="field-hint">Signed in as <span id="account-email" class="account-email"></span></p>
 
@@ -75,6 +96,17 @@ import Base from '../layouts/Base.astro';
         <button type="submit" class="account-btn">Save</button>
       </form>
       <p id="name-status" class="form-status" role="status" aria-live="polite"></p>
+
+      {/* Also how a password gets SET: accounts predating passwords (magic
+          link) and password-reset arrivals both land signed-in and set it here.
+          account.ts points recovery arrivals at this form. */}
+      <form id="password-form" class="account-form">
+        <label class="field-label" for="new-password">Change password</label>
+        <input id="new-password" type="password" name="new_password" minlength="8" required
+          autocomplete="new-password" placeholder="At least 8 characters" />
+        <button type="submit" class="account-btn">Set password</button>
+      </form>
+      <p id="password-status" class="form-status" role="status" aria-live="polite"></p>
 
       <div class="account-actions">
         <button id="sign-out" type="button" class="account-btn ghost">Sign out</button>

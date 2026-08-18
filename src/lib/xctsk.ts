@@ -23,26 +23,34 @@ export interface XcTask {
 }
 
 /**
- * What kind of competition task this is. Not a property of the `.xctsk` file —
- * XContest writes `taskType: "CLASSIC"` for every one of these, hike-and-fly
- * included — so it comes from outside: the archive manifest for a stored day
- * (see scripts/archive.mjs `--kind`), or the picker on the upload page.
+ * What kind of day this is. Not a property of the `.xctsk` file — XContest
+ * writes `taskType: "CLASSIC"` for every one of these, hike-and-fly included —
+ * so it comes from outside: the archive manifest for a stored day (see
+ * scripts/archive.mjs `--kind`), or the picker on the upload page.
  *
  * It selects which metrics are computed and shown: the full set for an XC comp,
  * a small starter set for hike and fly, whose turnpoint-to-turnpoint legs are
  * part hiked and part flown, so the air-only model behind the rest (par climb,
  * par glide, Time Lost) doesn't describe the day. See competition.ts
  * `metricsFor` and `buildMapData`.
+ *
+ * 'free' is the kind with no task at all — a set of tracklogs analyzed on
+ * their own (Competition runs with task = null): whole-flight stats, no start
+ * gate, no completion, no turnpoints on the map. Only the analyze page and
+ * saved comps produce it; the archive never does, which is why it is absent
+ * from TASK_KINDS below.
  */
-export type TaskKind = 'xc' | 'hike-and-fly';
+export type TaskKind = 'xc' | 'hike-and-fly' | 'free';
 
 export const DEFAULT_TASK_KIND: TaskKind = 'xc';
 
+/** The task-BASED kinds: what the archive can hold and a .xctsk describes. */
 export const TASK_KINDS: readonly TaskKind[] = ['xc', 'hike-and-fly'];
 
 export const TASK_KIND_LABELS: Record<TaskKind, string> = {
   xc: 'XC Comp',
   'hike-and-fly': 'Hike and Fly',
+  free: 'Free Flight',
 };
 
 /**
@@ -54,7 +62,12 @@ export const TASK_KIND_LABELS: Record<TaskKind, string> = {
  */
 export function parseTaskKind(value: unknown): TaskKind {
   const s = String(value ?? '').toLowerCase().replace(/[^a-z]/g, '');
-  return s === 'hikeandfly' || s === 'hikefly' || s === 'hnf' ? 'hike-and-fly' : DEFAULT_TASK_KIND;
+  if (s === 'hikeandfly' || s === 'hikefly' || s === 'hnf') return 'hike-and-fly';
+  // "non-comp" is what free flights were briefly called; saved rows may say it.
+  if (s === 'free' || s === 'freeflight' || s === 'freeflights' || s === 'noncomp' || s === 'noncompflights') {
+    return 'free';
+  }
+  return DEFAULT_TASK_KIND;
 }
 
 /**

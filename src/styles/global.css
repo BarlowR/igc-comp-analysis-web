@@ -16,6 +16,17 @@
   box-sizing: border-box;
 }
 
+/* The [hidden] attribute always wins. Without this, any element whose class
+   sets `display` (flex tabs, grid fields, …) silently ignores [hidden] — the
+   UA's own `[hidden] { display: none }` loses every specificity contest with a
+   class rule. This file used to patch that per class as each instance was
+   found (.comp-notes[hidden], .archive .tab[hidden], …); this is the general
+   cure. Scripts toggle visibility with the attribute everywhere, so hiding is
+   attribute-driven by design — nothing shows a [hidden] element on purpose. */
+[hidden] {
+  display: none !important;
+}
+
 body {
   margin: 0;
   font-family: 'Roboto', system-ui, -apple-system, Helvetica, Arial, sans-serif;
@@ -177,7 +188,8 @@ main {
 
 .kind-options {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  /* All three kinds on one row on desktop; stacked on phones below. */
+  grid-template-columns: repeat(3, 1fr);
   gap: 0.75rem;
   margin-top: 0.6rem;
 }
@@ -227,6 +239,11 @@ main {
   border: 1px dashed var(--border);
   border-radius: 10px;
   padding: 1rem;
+}
+
+
+.uploader .drop:has(.file-field[hidden]) {
+  grid-template-columns: 1fr;
 }
 
 .field-label {
@@ -850,6 +867,7 @@ table.stats td.name {
   cursor: pointer;
 }
 
+
 .archive .tab:hover {
   color: var(--text);
 }
@@ -971,9 +989,6 @@ table.stats td.name {
   border-bottom: 1px dashed var(--border);
 }
 
-.comp-notes[hidden] {
-  display: none;
-}
 
 /* The whole of the empty state: no heading, no box, just a way in. */
 .comp-notes-add {
@@ -993,13 +1008,7 @@ table.stats td.name {
   color: var(--accent-strong);
 }
 
-.comp-notes-add[hidden] {
-  display: none;
-}
 
-.comp-notes-editor[hidden] {
-  display: none;
-}
 
 .comp-notes-text {
   display: block;
@@ -1112,9 +1121,6 @@ table.stats td.name {
   font-variant-numeric: tabular-nums;
 }
 
-.day-note-mark[hidden] {
-  display: none;
-}
 
 .day-link .day-meta {
   color: var(--muted);
@@ -1316,7 +1322,8 @@ table.stats td.name {
 }
 
 .account-form input[type='email'],
-.account-form input[type='text'] {
+.account-form input[type='text'],
+.account-form select {
   width: 100%;
   background: var(--panel-2);
   color: var(--text);
@@ -1512,9 +1519,6 @@ table.stats td.name {
   white-space: nowrap;
 }
 
-.claim-day-notes[hidden] {
-  display: none;
-}
 
 .claim-day-notes:hover {
   background: var(--accent);
@@ -1617,4 +1621,104 @@ table.stats td.name {
 
 .day-claim .claim-remove {
   margin-left: 0;
+}
+
+/* ----------------------------------------------------- accounts: password --
+   The password sign-in/up form and the email fallbacks under it
+   (src/pages/account.astro, src/scripts/account.ts). */
+.account-form input[type='password'] {
+  width: 100%;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.55rem 0.7rem;
+  font: inherit;
+}
+
+.account-actions-row {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+}
+
+/* A button that reads as a link: the "Forgot password?" / "email me a link"
+   fallbacks are actions, but visually they are asides, not calls to action. */
+.linklike {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-size: inherit;
+  color: var(--accent-strong);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.linklike:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.account-alt {
+  margin-top: 1rem;
+}
+
+/* -------------------------------------------------------------- saved comps --
+   The "save to account" card on the analyze page and the recompute banner on
+   /saved (src/scripts/app.ts, src/scripts/saved.ts). */
+.save-card {
+  margin-top: 1rem;
+}
+
+.save-card .field-hint {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+}
+
+.save-form input[type='text'] {
+  max-width: 24rem;
+}
+
+/* The ✦ after a saved comp's name on the archive index (archive-saved.ts):
+   this row lives in your account, not in the shared archive. */
+.saved-mark {
+  color: var(--accent-strong);
+  font-size: 0.85em;
+}
+
+/* ✕ on a saved task's card on the archive index (archive-saved.ts) — the one
+   control an archived card doesn't have, because these rows are the user's own
+   to remove. Absolute in the top corner, above the stretched day-link. */
+.day-del {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.55rem;
+  z-index: 1;
+  background: none;
+  border: none;
+  padding: 0.1rem 0.3rem;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.8rem;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 5px;
+}
+
+.day-del:hover:not(:disabled) {
+  color: #9b2c2c;
+}
+
+/* Keep a long task name from running under the ✕. */
+.day-card:has(.day-del) .day-title {
+  padding-right: 1.1rem;
+}
+
+/* The comp select sizes like the save-name input beside it. */
+.save-form select {
+  max-width: 24rem;
 }

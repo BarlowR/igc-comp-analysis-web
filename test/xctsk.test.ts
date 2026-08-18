@@ -64,6 +64,12 @@ test('parseTaskKind: hike-and-fly spellings, punctuation and case', () => {
   }
 });
 
+test('parseTaskKind: free-flight spellings, including the old non-comp name', () => {
+  for (const v of ['free', 'Free Flight', 'free-flight', 'Free Flights', 'non-comp', 'Non-comp Flights']) {
+    assert.equal(parseTaskKind(v), 'free', String(v));
+  }
+});
+
 test('parseTaskKind: absent or unrecognised is an XC comp', () => {
   for (const v of [undefined, null, '', 'xc', 'XC Comp', 'CLASSIC', 'race-to-goal', 42]) {
     assert.equal(parseTaskKind(v), DEFAULT_TASK_KIND, String(v));

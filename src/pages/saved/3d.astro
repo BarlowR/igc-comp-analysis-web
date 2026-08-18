@@ -1,0 +1,25 @@
+---
+// 3D tracklog viewer for a saved comp: /saved/3d?id=<uuid>. One static page —
+// the id only exists client-side, so the heading ships as a placeholder that
+// track3d.ts replaces with the comp's name, and the flight data comes from the
+// account's saved-comps storage rather than a public JSON (track3d.ts branches
+// on `saved` in the entry blob). Page body + styles: components/Viewer3d.astro.
+import Base from '../../layouts/Base.astro';
+import Viewer3d from '../../components/Viewer3d.astro';
+---
+
+<Base title="Saved comp — 3D">
+  <Viewer3d heading="Saved comp" backHref="/saved" entry={{ saved: true }} />
+</Base>
+
+<script>
+  // Carry the ?id through every way back to the 2D view — including the
+  // sign-in gate's back link, which shows before track3d.ts ever runs.
+  const id = new URLSearchParams(window.location.search).get('id');
+  if (id) {
+    const back = `/saved?id=${encodeURIComponent(id)}`;
+    for (const a of document.querySelectorAll<HTMLAnchorElement>('a.backlink, a.gate3d-back')) {
+      a.href = back;
+    }
+  }
+</script>
