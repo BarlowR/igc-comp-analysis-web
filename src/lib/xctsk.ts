@@ -57,6 +57,27 @@ export function parseTaskKind(value: unknown): TaskKind {
   return s === 'hikeandfly' || s === 'hikefly' || s === 'hnf' ? 'hike-and-fly' : DEFAULT_TASK_KIND;
 }
 
+/**
+ * Index of the cylinder the scored task starts at — the one that declares itself
+ * the start of speed section. Everything before it (a TAKEOFF cylinder, and on
+ * some tasks a waypoint or two beyond it) is pre-start staging: pilots sit
+ * inside it during the hold, so treating it as the start puts the whole task
+ * geometry one leg out and scores the hold as flying.
+ *
+ * Read the type rather than counting from the front, because both shapes occur:
+ * XCTrack and AirScore tasks lead with a separate TAKEOFF cylinder and put the
+ * SSS second, while the xcdemon-sourced tasks name the launch itself SSS and
+ * have no TAKEOFF at all. A fixed offset is wrong for one or the other.
+ *
+ * Tasks with no SSS at all fall back to skipping a leading TAKEOFF, which is the
+ * best guess available when nothing declares itself the start.
+ */
+export function startTurnpointIndex(turnpoints: readonly { type: string | null }[]): number {
+  const sss = turnpoints.findIndex((tp) => tp.type === 'SSS');
+  if (sss !== -1) return sss;
+  return turnpoints[0]?.type === 'TAKEOFF' && turnpoints.length > 1 ? 1 : 0;
+}
+
 export function parseXcTask(text: string): XcTask {
   const data = JSON.parse(text);
 

@@ -18,7 +18,7 @@ import * as L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { optimizeTaskRoute } from '../lib/math';
 import { lostSeries } from '../lib/timetogo';
-import { DEFAULT_TASK_KIND, type TaskKind } from '../lib/xctsk';
+import { DEFAULT_TASK_KIND, startTurnpointIndex, type TaskKind } from '../lib/xctsk';
 import {
   Competition,
   CLIMB_RATE_TICKS,
@@ -391,10 +391,11 @@ function initMap(holder: HTMLElement, data: MapData, sel: Selection, colors: Map
 
   // Dashed line along the shortest route that touches each cylinder (the
   // scored "optimized task"), rather than straight lines through the centres.
-  // Drop a leading TAKEOFF: the scored route starts at the SSS cylinder, and
-  // an exit-start takeoff usually sits inside it (a degenerate stub otherwise).
-  let routeTps = data.turnpoints;
-  if (routeTps[0]?.type === 'TAKEOFF' && routeTps.length > 1) routeTps = routeTps.slice(1);
+  // Start the drawn route at the SSS, dropping any pre-start staging cylinders:
+  // an exit-start takeoff usually sits inside the SSS (a degenerate stub
+  // otherwise), and drawing from it makes the line disagree with the scored
+  // geometry in buildGeom.
+  const routeTps = data.turnpoints.slice(startTurnpointIndex(data.turnpoints));
   if (routeTps.length > 1) {
     const route = optimizeTaskRoute(routeTps);
     L.polyline(route, { color: '#140c0c', weight: 1.5, dashArray: '6 6', opacity: 0.7 }).addTo(m);

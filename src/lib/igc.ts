@@ -21,7 +21,7 @@ import {
   not,
   nanmean,
 } from './math';
-import type { XcTask } from './xctsk';
+import { startTurnpointIndex, type XcTask } from './xctsk';
 
 const MS_TO_KMH = 3.6;
 const FORWARD_TRAVEL_THRESHOLD = 200; // FORWARD_TRAVEL_THRESHOLD_20S in Python
@@ -434,8 +434,11 @@ export class IgcFlight {
     const essIdx = tps.findIndex((tp) => tp.type === 'ESS');
     const finishIdx = essIdx === -1 ? tps.length - 1 : essIdx;
 
-    let nextIdx = 0;
-    if (tps[0]?.type === 'TAKEOFF') nextIdx = 1;
+    // Begin at the SSS, skipping any pre-start staging cylinders. Anchoring on
+    // the declared start rather than on "index 0, or 1 if that one is a
+    // TAKEOFF" is what keeps a takeoff cylinder from being scored as the start
+    // when it isn't the immediately-preceding turnpoint.
+    let nextIdx = startTurnpointIndex(tps);
     let entryTime: number | null = null;
 
     for (let i = 0; i < c.timeMs.length; i++) {

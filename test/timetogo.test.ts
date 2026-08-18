@@ -420,18 +420,49 @@ test('optimalRemaining: pilot already inside a turnpoint routes straight on (fre
 });
 
 // ---- buildGeom: structure -------------------------------------------------
-test('buildGeom: sorts by order, drops order<1, terminates at ESS', () => {
+test('buildGeom: sorts by order, starts at the SSS, terminates at ESS', () => {
   const tps = [
     { lat: 0, lon: 0.2, radius: 0, name: 'ESS', type: 'ESS', order: 4 },
     { lat: 0, lon: 0, radius: 400, name: 'SSS', type: 'SSS', order: 2 },
     { lat: 0, lon: 0.1, radius: 1000, name: 'TP', type: 'TP', order: 3 },
     { lat: 0, lon: 0.3, radius: 3000, name: 'GOAL', type: 'GOAL', order: 5 }, // after ESS → dropped
-    { lat: 1, lon: 1, radius: 0, name: 'TO', type: 'TAKEOFF', order: 0 }, // order<1 → dropped
+    { lat: 1, lon: 1, radius: 0, name: 'TO', type: 'TAKEOFF', order: 0 }, // before SSS → dropped
   ];
   const g = buildGeom(tps);
   assert.equal(g.cx.length, 3, 'should keep SSS, TP, ESS only'); // GOAL + takeoff removed
   assert.equal(g.r[0], 400); // first is SSS
   assert.equal(g.r[2], 0); // last is ESS
+});
+
+test('buildGeom: a task with no TAKEOFF keeps its SSS as the start cylinder', () => {
+  // xcdemon-sourced tasks name the launch itself SSS and have no separate
+  // TAKEOFF, so there is no leading cylinder to drop. Dropping turnpoint 0
+  // regardless (the old "order >= 1" rule) started the route at the first
+  // regular turnpoint, shortening the task by its whole first leg.
+  const tps = [
+    { lat: 0, lon: 0, radius: 400, name: 'SSS', type: 'SSS', order: 0 },
+    { lat: 0, lon: 0.1, radius: 1000, name: 'TP', type: null, order: 1 },
+    { lat: 0, lon: 0.2, radius: 0, name: 'ESS', type: 'ESS', order: 2 },
+  ];
+  const g = buildGeom(tps);
+  assert.equal(g.cx.length, 3, 'SSS, TP and ESS should all be kept');
+  assert.equal(g.r[0], 400, 'the SSS is the start cylinder, not the first regular turnpoint');
+  // The task runs SSS → TP → ESS, so its length must exceed the TP → ESS leg alone.
+  assert.ok(taskDistanceM(g) > 10_000, `task distance ${taskDistanceM(g)} should span both legs`);
+});
+
+test('buildGeom: pre-start cylinders beyond a leading takeoff are dropped too', () => {
+  // A fixed one-turnpoint skip only ever removes the TAKEOFF; anchoring on the
+  // declared SSS removes everything staged ahead of the start.
+  const tps = [
+    { lat: 1, lon: 1, radius: 0, name: 'TO', type: 'TAKEOFF', order: 0 },
+    { lat: 2, lon: 2, radius: 500, name: 'HOLD', type: null, order: 1 },
+    { lat: 0, lon: 0, radius: 400, name: 'SSS', type: 'SSS', order: 2 },
+    { lat: 0, lon: 0.1, radius: 0, name: 'ESS', type: 'ESS', order: 3 },
+  ];
+  const g = buildGeom(tps);
+  assert.equal(g.cx.length, 2, 'only SSS and ESS remain');
+  assert.equal(g.r[0], 400);
 });
 
 test('buildGeom: SSS exit point is on its ring toward the first turnpoint', () => {

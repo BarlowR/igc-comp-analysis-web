@@ -19,6 +19,7 @@
  * detrends that into "minutes behind the par ghost".
  */
 import type { MapTurnpoint } from './competition';
+import { startTurnpointIndex } from './xctsk';
 
 const R_EARTH = 6_371_000;
 // Tag margin (m): a cylinder counts as reached when a fix comes within radius +
@@ -125,11 +126,15 @@ export function waypointThroughCylinder(
 
 /**
  * Build the ESS-terminated task and optimise the shortest route through the
- * cylinders (airscore `find_shortest_route`, 3 passes). Goal turnpoints after ESS
- * are dropped — the timed race ends at ESS; goal is only a completed-or-not flag.
+ * cylinders (airscore `find_shortest_route`, 3 passes). The route runs from the
+ * SSS (see `startTurnpointIndex` — NOT simply turnpoint 1, which drops the SSS
+ * on a task that has no separate TAKEOFF cylinder) to the ESS. Goal turnpoints
+ * after ESS are dropped — the timed race ends at ESS; goal is only a
+ * completed-or-not flag.
  */
 export function buildGeom(turnpoints: MapTurnpoint[]): OptTask {
-  const tps = turnpoints.filter((tp) => tp.order >= 1).sort((a, b) => a.order - b.order);
+  const ordered = [...turnpoints].sort((a, b) => a.order - b.order);
+  const tps = ordered.slice(startTurnpointIndex(ordered));
   const essI = tps.findIndex((tp) => tp.type === 'ESS');
   const route = tps.slice(0, (essI >= 0 ? essI : tps.length - 1) + 1);
   const lat0 = route[0].lat;

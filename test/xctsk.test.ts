@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import {
   parseXcTask,
   parseTaskKind,
+  startTurnpointIndex,
   TASK_KINDS,
   TASK_KIND_LABELS,
   DEFAULT_TASK_KIND,
@@ -83,4 +84,25 @@ test('parseXcTask: empty/minimal input falls back to defaults', () => {
   assert.deepEqual(t.goal, {});
   assert.deepEqual(t.sss, { timeGates: [] });
   assert.deepEqual(t.turnpoints, []);
+});
+
+// ---- startTurnpointIndex --------------------------------------------------
+
+test('startTurnpointIndex: the SSS is the start, wherever it sits', () => {
+  const at = (...types: (string | null)[]) => startTurnpointIndex(types.map((type) => ({ type })));
+  // XCTrack / AirScore shape: a separate TAKEOFF cylinder, SSS second.
+  assert.equal(at('TAKEOFF', 'SSS', null, 'ESS', null), 1);
+  // xcdemon shape: the launch itself IS the SSS, no TAKEOFF at all.
+  assert.equal(at('SSS', null, null, 'ESS', null), 0);
+  // Anything staged between the takeoff and the start is pre-start too.
+  assert.equal(at('TAKEOFF', null, 'SSS', 'ESS'), 2);
+});
+
+test('startTurnpointIndex: with no SSS, skip only a leading takeoff', () => {
+  const at = (...types: (string | null)[]) => startTurnpointIndex(types.map((type) => ({ type })));
+  assert.equal(at('TAKEOFF', null, 'ESS'), 1);
+  assert.equal(at(null, null, 'ESS'), 0);
+  // A lone takeoff is all there is — there is nothing after it to start at.
+  assert.equal(at('TAKEOFF'), 0);
+  assert.equal(startTurnpointIndex([]), 0);
 });
