@@ -124,17 +124,21 @@ export function renderArchivedResults(opts: {
 /**
  * Run the full analysis over one task + a set of IGC tracklogs, rendering into
  * `resultsEl`. Progress and a summary are written to `statusEl` when provided.
+ * Returns the results payload (the same shape an archived day stores) so the
+ * caller can persist it — the analyze page's "save to account" uploads exactly
+ * this, and the saved-comp viewer re-renders it via renderArchivedResults.
  */
 export async function runAnalysis(opts: {
-  taskText: string;
+  /** Null on a free-flight run: no task, whole-flight analysis. */
+  taskText: string | null;
   igc: { name: string; text: string }[];
   resultsEl: HTMLElement;
   statusEl?: HTMLElement;
   /** Minutes to add to UTC for local task time (from archive meta); null = UTC. */
   utcOffsetMinutes?: number | null;
-  /** XC comp (default) or hike and fly — picks the metric set. See xctsk.ts. */
+  /** XC comp (default), hike and fly, or free — picks the metric set. See xctsk.ts. */
   taskKind?: TaskKind;
-}): Promise<void> {
+}): Promise<ArchivedResults> {
   const { taskText, igc, resultsEl, statusEl } = opts;
   const setStatus = (s: string): void => {
     if (statusEl) statusEl.textContent = s;
@@ -158,8 +162,9 @@ export async function runAnalysis(opts: {
   }
 
   setStatus(`Loaded ${comp.pilots.length} pilot${comp.pilots.length === 1 ? '' : 's'}.`);
-  const { table, climb, map, timeLoss } = comp.buildResults();
-  render(resultsEl, statusEl, table, climb, map, timeLoss);
+  const results = comp.buildResults();
+  render(resultsEl, statusEl, results.table, results.climb, results.map, results.timeLoss);
+  return results;
 }
 
 /**
@@ -291,17 +296,31 @@ function render(
   // charts (see buildPilotSelection for the top-20 default rule).
   const { ordered, sel, colors, truncated, topN } = buildPilotSelection(table, mapData);
   if (truncated && statusEl) {
-    statusEl.textContent += `  Showing the top ${topN} of ${ordered.length} pilots by default — use the “deselected pilots” section or the checkboxes to show more.`;
+    statusEl.textContent += `  Showing the top ${topN} of ${ordered.length} pilots — use the “deselected pilots” section to show more.`;
   }
 
-  if (table.completed.length || climb.completed.length) {
-    resultsEl.appendChild(group('Completed Task', table, table.completed, true, climb.completed, sel, colors, timeLoss));
-  }
-  if (mapData.turnpoints.length || mapData.tracks.length) {
-    resultsEl.appendChild(mapSection(mapData, sel, colors, threeDUrl));
-  }
-  if (table.incomplete.length || climb.incomplete.length) {
-    resultsEl.appendChild(group('Did Not Complete Task', table, table.incomplete, false, climb.incomplete, sel, colors, timeLoss));
+  // A free-flight day has no completion concept: every pilot is in the
+  // `incomplete` bucket, shown as one "Flights" group (leading, where the
+  // completed table normally sits) — "Did Not Complete Task" would be nonsense
+  // when there was nothing to complete.
+  const free = mapData.taskKind === 'free';
+  if (free) {
+    if (table.incomplete.length || climb.incomplete.length) {
+      resultsEl.appendChild(group('Flights', table, table.incomplete, true, climb.incomplete, sel, colors, timeLoss));
+    }
+    if (mapData.tracks.length) {
+      resultsEl.appendChild(mapSection(mapData, sel, colors, threeDUrl));
+    }
+  } else {
+    if (table.completed.length || climb.completed.length) {
+      resultsEl.appendChild(group('Completed Task', table, table.completed, true, climb.completed, sel, colors, timeLoss));
+    }
+    if (mapData.turnpoints.length || mapData.tracks.length) {
+      resultsEl.appendChild(mapSection(mapData, sel, colors, threeDUrl));
+    }
+    if (table.incomplete.length || climb.incomplete.length) {
+      resultsEl.appendChild(group('Did Not Complete Task', table, table.incomplete, false, climb.incomplete, sel, colors, timeLoss));
+    }
   }
   // On the next frame, not synchronously: group() builds each chart and runs its
   // first syncChart() while the card is still detached, so the chart has no size
@@ -326,7 +345,8 @@ function mapSection(
   const head = document.createElement('div');
   head.className = 'map-head';
   const h = document.createElement('h2');
-  h.textContent = 'Task & Tracks';
+  // No turnpoints (a free-flight day): there is no task on this map to name.
+  h.textContent = data.turnpoints.length ? 'Task & Tracks' : 'Tracks';
   head.appendChild(h);
   if (threeDUrl) {
     const link = document.createElement('a');

@@ -1,7 +1,10 @@
-// Account page island: passwordless sign-in, display name, sign out.
+// Account page island: email/password sign-in and sign-up, display name,
+// password change, sign out.
 //
-// The site is static, so this is the whole auth flow — supabase-js emails a
-// magic link, the link lands back on /account with ?code=…, and the client
+// The site is static, so this is the whole auth flow. Password sign-in needs no
+// redirect at all; the email flows still do — password reset, the magic-link
+// fallback for accounts from before passwords existed, and sign-up
+// confirmation. Those land back on /account with ?code=…, and the client
 // exchanges it for a session on load (detectSessionInUrl in lib/supabase.ts).
 import {
   fetchProfile,
@@ -21,13 +24,20 @@ const signedIn = el('account-signed-in');
 
 const signInForm = el<HTMLFormElement>('signin-form');
 const emailInput = el<HTMLInputElement>('signin-email');
+const passwordInput = el<HTMLInputElement>('signin-password');
 const signInButton = el<HTMLButtonElement>('signin-submit');
+const signUpButton = el<HTMLButtonElement>('signup-submit');
+const forgotButton = el<HTMLButtonElement>('forgot-password');
+const magicButton = el<HTMLButtonElement>('magic-link');
 const signInStatus = el('signin-status');
 
 const emailLabel = el('account-email');
 const nameForm = el<HTMLFormElement>('name-form');
 const nameInput = el<HTMLInputElement>('display-name');
 const nameStatus = el('name-status');
+const passwordForm = el<HTMLFormElement>('password-form');
+const newPasswordInput = el<HTMLInputElement>('new-password');
+const passwordStatus = el('password-status');
 const signOutButton = el<HTMLButtonElement>('sign-out');
 
 function show(section: HTMLElement | null) {
@@ -42,8 +52,14 @@ function setStatus(node: HTMLElement | null, message: string, kind: 'ok' | 'erro
 
 function describe(err: unknown): string {
   const message = err instanceof Error ? err.message : String(err);
-  // Supabase rate-limits magic links per address; say something useful.
+  // Supabase rate-limits sign-in/reset emails per address; say something useful.
   if (/rate limit|too many/i.test(message)) return 'Too many sign-in emails. Try again in a few minutes.';
+  // Deliberately vague server-side (it won't say whether the email exists);
+  // point at the two ways out. Older accounts signed in by emailed link and
+  // have no password until they set one.
+  if (/invalid login credentials/i.test(message)) {
+    return 'Wrong email or password.';
+  }
   return message || 'Something went wrong.';
 }
 
@@ -112,6 +128,9 @@ function takeNext(): string | null {
 /** Guards against a second onAuthStateChange firing the claims mount again. */
 let claimsMounted = false;
 
+/** True after a PASSWORD_RECOVERY arrival: stay on the password form, don't redirect. */
+let recovering = false;
+
 async function renderSignedIn(email: string | null) {
   if (emailLabel) emailLabel.textContent = email ?? '';
   show(signedIn);
@@ -178,33 +197,25 @@ async function init() {
   // A failed or expired link comes back as an error in the hash, not a throw.
   const hashError = new URLSearchParams(window.location.hash.slice(1)).get('error_description');
 
-  const {
-    data: { session },
-  } = await sb.auth.getSession();
-  window.clearTimeout(slowTimer);
-  cleanUrl();
-
-  if (session?.user) {
-    // A refresh may have revived a stale session, or the magic link may have
-    // just been exchanged — either way, honour a pending return path.
-    const dest = takeNext();
-    if (dest) {
-      window.location.replace(dest);
-      return;
-    }
-    await renderSignedIn(session.user.email ?? null);
-  } else {
-    show(signedOut);
-    if (hashError) setStatus(signInStatus, hashError, 'error');
-  }
-
-  // Keeps the page honest across tabs, token refreshes and the link exchange.
+  // Subscribed BEFORE getSession(): the ?code= exchange happens during the
+  // client's own initialisation, and a password-reset arrival announces itself
+  // only through the PASSWORD_RECOVERY event that exchange emits. Subscribing
+  // after (as this used to) can miss it. The event ordering is not guaranteed,
+  // so recovery also sets a flag that stops SIGNED_IN redirecting away from the
+  // set-a-password form; and if the event is missed entirely, the user still
+  // lands signed-in with the Change password form available — nothing is stuck.
   sb.auth.onAuthStateChange((event, next) => {
     if (event === 'SIGNED_OUT') {
       show(signedOut);
       setStatus(signInStatus, '');
+    } else if (event === 'PASSWORD_RECOVERY') {
+      recovering = true;
+      void renderSignedIn(next?.user?.email ?? null).then(() => {
+        setStatus(passwordStatus, 'Choose a new password below.', 'ok');
+        newPasswordInput?.focus();
+      });
     } else if (next?.user && event === 'SIGNED_IN') {
-      const dest = takeNext();
+      const dest = recovering ? null : takeNext();
       if (dest) {
         window.location.replace(dest);
         return;
@@ -212,19 +223,130 @@ async function init() {
       void renderSignedIn(next.user.email ?? null);
     }
   });
+
+  const {
+    data: { session },
+  } = await sb.auth.getSession();
+  window.clearTimeout(slowTimer);
+  cleanUrl();
+
+  if (session?.user) {
+    // A refresh may have revived a stale session, or an emailed link may have
+    // just been exchanged — either way, honour a pending return path (but not
+    // mid-recovery: the point of that arrival is the password form here).
+    const dest = recovering ? null : takeNext();
+    if (dest) {
+      window.location.replace(dest);
+      return;
+    }
+    await renderSignedIn(session.user.email ?? null);
+  } else if (!recovering) {
+    show(signedOut);
+    if (hashError) setStatus(signInStatus, hashError, 'error');
+  }
 }
+
+// ---- password sign-in / sign-up ---------------------------------------------
+// One form, two buttons: submit signs in, "Create account" signs up with the
+// same fields. Password sign-in needs no email round-trip, so the SIGNED_IN
+// event (and any ?next= redirect) fires immediately.
 
 signInForm?.addEventListener('submit', async (event) => {
   event.preventDefault();
   const email = emailInput?.value.trim();
-  if (!email) return;
-
-  // Park the return path now: the link lands back on a bare /account, possibly
-  // in another tab, so the URL can't carry it. (Nor should it — putting a query
-  // on emailRedirectTo risks missing Supabase's redirect allow-list.)
-  if (nextParam) rememberNext(nextParam);
+  const password = passwordInput?.value ?? '';
+  if (!email || !password) return;
 
   if (signInButton) signInButton.disabled = true;
+  setStatus(signInStatus, 'Signing in…');
+  try {
+    const sb = await getSupabase();
+    const { error } = await sb.auth.signInWithPassword({ email, password });
+    if (error) throw error;
+    // The SIGNED_IN handler renders or redirects; nothing more to do here.
+    setStatus(signInStatus, '');
+  } catch (err) {
+    setStatus(signInStatus, describe(err), 'error');
+  } finally {
+    if (signInButton) signInButton.disabled = false;
+  }
+});
+
+signUpButton?.addEventListener('click', async () => {
+  // The button is type=button so it doesn't submit; validity is checked
+  // explicitly to get the browser's own messages for a bad email / short
+  // password.
+  if (!signInForm?.reportValidity()) return;
+  const email = emailInput!.value.trim();
+  const password = passwordInput!.value;
+
+  signUpButton.disabled = true;
+  setStatus(signInStatus, 'Creating account…');
+  try {
+    const sb = await getSupabase();
+    const { data, error } = await sb.auth.signUp({
+      email,
+      password,
+      // Only used when the project requires email confirmation: the confirm
+      // link lands back here and detectSessionInUrl signs the user in.
+      options: { emailRedirectTo: `${window.location.origin}/account` },
+    });
+    if (error) throw error;
+    if (data.session) {
+      setStatus(signInStatus, ''); // confirmation off — SIGNED_IN takes it from here
+    } else {
+      setStatus(signInStatus, `Check ${email} for a confirmation link.`, 'ok');
+    }
+  } catch (err) {
+    setStatus(signInStatus, describe(err), 'error');
+  } finally {
+    signUpButton.disabled = false;
+  }
+});
+
+// ---- email fallbacks ----------------------------------------------------------
+// Both need only the email field. The links land back on /account, so the
+// return path is parked in localStorage while the email is in flight (the URL
+// can't carry it — a query on the redirect risks missing Supabase's allow-list).
+
+/** The email field alone, validated; reports on the field if empty/invalid. */
+function emailForLink(): string | null {
+  const email = emailInput?.value.trim();
+  if (!email || !emailInput?.checkValidity()) {
+    emailInput?.reportValidity();
+    emailInput?.focus();
+    return null;
+  }
+  return email;
+}
+
+forgotButton?.addEventListener('click', async () => {
+  const email = emailForLink();
+  if (!email) return;
+
+  forgotButton.disabled = true;
+  setStatus(signInStatus, 'Sending…');
+  try {
+    const sb = await getSupabase();
+    const { error } = await sb.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/account`,
+    });
+    if (error) throw error;
+    setStatus(signInStatus, `Check ${email} for a password reset link.`, 'ok');
+  } catch (err) {
+    setStatus(signInStatus, describe(err), 'error');
+  } finally {
+    forgotButton.disabled = false;
+  }
+});
+
+magicButton?.addEventListener('click', async () => {
+  const email = emailForLink();
+  if (!email) return;
+
+  if (nextParam) rememberNext(nextParam);
+
+  magicButton.disabled = true;
   setStatus(signInStatus, 'Sending…');
   try {
     const sb = await getSupabase();
@@ -234,11 +356,30 @@ signInForm?.addEventListener('submit', async (event) => {
     });
     if (error) throw error;
     setStatus(signInStatus, `Check ${email} for a sign-in link.`, 'ok');
-    signInForm.reset();
   } catch (err) {
     setStatus(signInStatus, describe(err), 'error');
   } finally {
-    if (signInButton) signInButton.disabled = false;
+    magicButton.disabled = false;
+  }
+});
+
+// ---- change / set password (signed in) ----------------------------------------
+
+passwordForm?.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const password = newPasswordInput?.value ?? '';
+  if (!password) return;
+
+  setStatus(passwordStatus, 'Saving…');
+  try {
+    const sb = await getSupabase();
+    const { error } = await sb.auth.updateUser({ password });
+    if (error) throw error;
+    recovering = false; // the reset that brought us here is complete
+    passwordForm.reset();
+    setStatus(passwordStatus, 'Password set.', 'ok');
+  } catch (err) {
+    setStatus(passwordStatus, describe(err), 'error');
   }
 });
 

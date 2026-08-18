@@ -127,6 +127,23 @@ function compMeta(group: CompGroup): string {
                   <span class="tab-count">{t.tasks}</span>
                 </button>
               ))}
+              {/* Account-only: saved analyses filed under "Free Flights".
+                  Ships hidden — scripts/archive-saved.ts reveals it (and fills
+                  the count) only when this account has some. */}
+              <button
+                type="button"
+                role="tab"
+                id="tab-free"
+                class="tab"
+                data-kind="free"
+                aria-controls="panel-free"
+                aria-selected="false"
+                tabindex={-1}
+                hidden
+              >
+                Free Flights
+                <span class="tab-count"></span>
+              </button>
             </div>
 
             {/* Said once for the page rather than on all 23 cards — per-card it
@@ -138,6 +155,18 @@ function compMeta(group: CompGroup): string {
               <a href="/account">sign in</a>
             </p>
           </div>
+
+          {/* Counterpart panel for the account-only tab above. Also starts
+              hidden from the tab rotation until archive-saved.ts has content
+              for it. */}
+          <div
+            role="tabpanel"
+            id="panel-free"
+            class="tabpanel"
+            aria-labelledby="tab-free"
+            tabindex="0"
+            hidden
+          />
 
           {tabs.map((t) => (
             <div
@@ -238,17 +267,22 @@ function compMeta(group: CompGroup): string {
 
 <script>
   import '../scripts/archive-notes.ts';
+  import '../scripts/archive-saved.ts';
 
   // Tab switching. The panels are already in the DOM — this only moves [hidden]
   // and the ARIA/roving-tabindex state around, and keeps the kind in the URL
   // hash so a tab can be linked to (/#hike-and-fly). replaceState, not a real
   // hash change: the browser would otherwise scroll to the panel and stack a
   // history entry on every click.
+  //
+  // A [hidden] tab (the account-only Free Flights one before
+  // archive-saved.ts reveals it) stays out of selection and keyboard rotation:
+  // it exists in the markup but not, yet, in the tab order.
   const tabs = [...document.querySelectorAll<HTMLButtonElement>('.archive .tab')];
 
   if (tabs.length) {
     const select = (kind: string, focus = false): void => {
-      const target = tabs.find((t) => t.dataset.kind === kind);
+      const target = tabs.find((t) => t.dataset.kind === kind && !t.hidden);
       if (!target) return;
       for (const tab of tabs) {
         const on = tab === target;
@@ -264,25 +298,34 @@ function compMeta(group: CompGroup): string {
       tab.addEventListener('click', () => select(tab.dataset.kind ?? ''));
     }
 
-    // Standard tablist keys: arrows wrap, Home/End jump to the ends.
+    // Standard tablist keys: arrows wrap, Home/End jump to the ends. Rotation
+    // runs over the visible tabs, re-read per keystroke because
+    // archive-saved.ts can reveal one after load.
     document.querySelector('.archive .tabs')?.addEventListener('keydown', (event) => {
       const e = event as KeyboardEvent;
+      const visible = tabs.filter((t) => !t.hidden);
+      if (!visible.length) return;
       const step = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
       let next = -1;
-      if (step) next = (tabs.findIndex((t) => t.tabIndex === 0) + step + tabs.length) % tabs.length;
-      else if (e.key === 'Home') next = 0;
-      else if (e.key === 'End') next = tabs.length - 1;
+      if (step) {
+        next = (visible.findIndex((t) => t.tabIndex === 0) + step + visible.length) % visible.length;
+      } else if (e.key === 'Home') next = 0;
+      else if (e.key === 'End') next = visible.length - 1;
       if (next < 0) return;
       e.preventDefault();
-      select(tabs[next].dataset.kind ?? '', true);
+      select(visible[next].dataset.kind ?? '', true);
     });
 
     // Honour a linked tab (/#hike-and-fly), now and on back/forward.
     const fromHash = (): void => {
       const kind = location.hash.slice(1);
-      if (kind && tabs.some((t) => t.dataset.kind === kind)) select(kind);
+      if (kind && tabs.some((t) => t.dataset.kind === kind && !t.hidden)) select(kind);
     };
     fromHash();
     window.addEventListener('hashchange', fromHash);
+
+    // archive-saved.ts announces when it reveals the account-only tab; a hash
+    // linking to it (/#free) can only be honoured after that.
+    window.addEventListener('archive-saved:revealed', fromHash);
   }
 </script>

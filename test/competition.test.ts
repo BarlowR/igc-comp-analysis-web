@@ -8,7 +8,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
   Competition,
@@ -16,6 +16,7 @@ import {
   gradientColor,
   metricsFor,
   COMP_SUBSET,
+  FREE_FLIGHT_SUBSET,
   HIKE_AND_FLY_SUBSET,
 } from '../src/lib/competition.ts';
 
@@ -66,6 +67,59 @@ test('metricsFor: xc is the full set, hike-and-fly a strict subset of it', () =>
     assert.deepEqual(xcByKey.get(col.key), col, `${col.key} diverges from the XC column`);
   }
   assert.equal(HIKE_AND_FLY_SUBSET[0].key, 'name', 'the pilot name must lead the table');
+});
+
+test('metricsFor: free is its own set with no task-relative columns', () => {
+  assert.equal(metricsFor('free'), FREE_FLIGHT_SUBSET);
+  assert.equal(FREE_FLIGHT_SUBSET[0].key, 'name', 'the pilot name must lead the table');
+  // Nothing task-relative can survive without a task.
+  for (const key of ['completion_time', 'comp_start_msl', 'comp_finish_msl', 'comp_seconds_after_gate']) {
+    assert.ok(!FREE_FLIGHT_SUBSET.some((c) => c.key === key), `${key} needs a task`);
+  }
+});
+
+// ---- integration: free-flight mode (no task at all) ------------------------
+const FREE_IGC_DIR = fileURLToPath(
+  new URL('../public/archive/norcal-sprint-2026/day679/', import.meta.url),
+);
+
+test('Competition: free-flight mode analyses tracklogs with no task', { timeout: 120_000 }, (t) => {
+  if (!existsSync(FREE_IGC_DIR)) {
+    t.skip('archive IGCs not present');
+    return;
+  }
+  const igcs = readdirSync(FREE_IGC_DIR).filter((f: string) => f.endsWith('.igc')).sort().slice(0, 3);
+  if (igcs.length < 2) {
+    t.skip('not enough IGCs');
+    return;
+  }
+
+  const comp = new Competition(null, null, 'free');
+  for (const f of igcs) comp.addPilot(readFileSync(FREE_IGC_DIR + f, 'utf8'), nameFromFile(f));
+
+  for (const p of comp.pilots) {
+    assert.equal(p.completed, false, 'nothing to complete without a task');
+    assert.equal(p.stats.completion_time, null);
+    assert.equal(p.stats.comp_start_msl, null);
+    assert.equal(p.stats.comp_seconds_after_gate, null);
+    assert.ok(num(p.stats.comp_total_distance) > 0, `${p.name} should have flown some distance`);
+    assert.equal(p.startGateMs, null);
+    assert.ok(p.track.length > 0, 'the full track survives the crop');
+  }
+
+  const { table, map, timeLoss } = comp.buildResults();
+  assert.equal(table.completed.length, 0);
+  assert.equal(table.incomplete.length, comp.pilots.length);
+  assert.deepEqual(table.headers, FREE_FLIGHT_SUBSET.map((c) => c.label));
+  // Ranked by distance flown, farthest first.
+  const dist = table.incomplete.map((row) => row[1].value);
+  for (let i = 1; i < dist.length; i++) assert.ok(dist[i - 1] >= dist[i], 'sorted by distance desc');
+
+  assert.equal(map.turnpoints.length, 0, 'no task, no turnpoints');
+  assert.equal(map.timeToGo, null, 'no task, no par model');
+  assert.equal(map.taskKind, 'free');
+  assert.equal(map.startMs, null);
+  assert.equal(timeLoss.rows.length, 0, 'no task, no time-loss decomposition');
 });
 
 // ---- integration: rebuild a real archived day -----------------------------

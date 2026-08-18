@@ -20,6 +20,18 @@ export function nameFromFile(filename: string): string {
 }
 import { haversine } from './math';
 
+/**
+ * Version of the analysis engine's OUTPUT, for cached results. A saved comp
+ * stores the results JSON it was computed with (src/lib/saved-comps.ts) next to
+ * its raw inputs; when a saved cache carries an older number than this, the
+ * viewer offers to recompute from the raw files instead of serving stale
+ * numbers forever. Bump it whenever a change to the analysis alters what
+ * buildResults emits — a scoring fix, a new metric, a changed series — and
+ * leave it alone for pure refactors. The archive needs no version: its results
+ * are rebuilt from the IGCs on every deploy.
+ */
+export const ANALYSIS_VERSION = 1;
+
 export type GradientDir = 'least_positive' | 'most_positive' | 'most_negative' | null;
 
 /** One column of the stats table: a stats key, its shading, and its heading. */
@@ -69,9 +81,31 @@ export const HIKE_AND_FLY_SUBSET: MetricColumn[] = [
   { key: 'comp_average_altitude', dir: 'most_positive', label: 'Average Altitude (m)' },
 ];
 
+/**
+ * Free flight: no task, so nothing task-relative survives — no completion
+ * time, no start/finish altitude, no gate. Distance flips direction versus the
+ * comp table: on a fixed task less distance flown means a tighter line, but on
+ * a free flight farther IS the accomplishment. Everything else is the
+ * whole-flight climb/glide craft that needs no course to mean something.
+ */
+export const FREE_FLIGHT_SUBSET: MetricColumn[] = [
+  { key: 'name', dir: null, label: 'Pilot Name' },
+  { key: 'comp_total_distance', dir: 'most_positive', label: 'Total Distance Flown (m)' },
+  { key: 'comp_total_meters_climbed', dir: null, label: 'Total Meters Climbed (m)' },
+  { key: 'comp_average_climb_rate', dir: 'most_positive', label: 'Average Climb Rate (m/s)' },
+  { key: 'comp_thermal_meters_climbed', dir: null, label: 'Thermal Meters Climbed (m)' },
+  { key: 'comp_glide_meters_climbed', dir: 'most_positive', label: 'Altitude Gain on Glide (m)' },
+  { key: 'comp_percentage_time_climbing_on_glide_s', dir: 'most_positive', label: 'Climbing on Glide (%)' },
+  { key: 'comp_total_time_climbing_s', dir: null, label: 'Total Climbing (s)' },
+  { key: 'comp_total_time_gliding_s', dir: null, label: 'Total Gliding (s)' },
+  { key: 'comp_average_altitude', dir: 'most_positive', label: 'Average Altitude (m)' },
+];
+
 /** The stats-table columns for a task kind. */
 export function metricsFor(kind: TaskKind): MetricColumn[] {
-  return kind === 'hike-and-fly' ? HIKE_AND_FLY_SUBSET : COMP_SUBSET;
+  if (kind === 'hike-and-fly') return HIKE_AND_FLY_SUBSET;
+  if (kind === 'free') return FREE_FLIGHT_SUBSET;
+  return COMP_SUBSET;
 }
 
 const CLIMB_RATE_LABELS = ['1ms', '2ms', '3ms', '4ms', '5ms', '>5ms'];
@@ -283,20 +317,21 @@ export interface TimeLossData {
 }
 
 export class Competition {
-  task: XcTask;
+  /** Null on a free-flight day: tracklogs analyzed with no task at all. */
+  task: XcTask | null;
   pilots: PilotRow[] = [];
   /** Minutes to add to UTC for local task time (from archive meta); null = UTC. */
   utcOffsetMinutes: number | null;
-  /** XC comp or hike and fly — see xctsk.ts `TaskKind`. Chooses the metric set
-   * and whether the par/Time Lost model runs at all. */
+  /** XC comp, hike and fly, or free — see xctsk.ts `TaskKind`. Chooses the
+   * metric set and whether the par/Time Lost model runs at all. */
   kind: TaskKind;
 
   constructor(
-    taskText: string,
+    taskText: string | null,
     utcOffsetMinutes: number | null = null,
     kind: TaskKind = DEFAULT_TASK_KIND,
   ) {
-    this.task = parseXcTask(taskText);
+    this.task = taskText === null ? null : parseXcTask(taskText);
     this.utcOffsetMinutes = utcOffsetMinutes;
     this.kind = kind;
   }
@@ -351,7 +386,8 @@ export class Competition {
    */
   addPilot(igcText: string, fallbackName: string): PilotRow {
     const flight = new IgcFlight(igcText, fallbackName);
-    flight.buildCompMetrics(this.task);
+    if (this.task) flight.buildCompMetrics(this.task);
+    else flight.buildFreeMetrics();
     const row: PilotRow = {
       name: flight.pilotName,
       completed: flight.stats.completed === true,
@@ -381,7 +417,10 @@ export class Competition {
   // ---- map view ----------------------------------------------------------
 
   buildMapData(): MapData {
-    const turnpoints: MapTurnpoint[] = this.task.turnpoints.map((tp) => ({
+    // A free-flight day has no task: no turnpoints on the map, and buildGeom
+    // returns an empty geom whose cx.length guards turn the whole par/τ model
+    // off below.
+    const turnpoints: MapTurnpoint[] = (this.task?.turnpoints ?? []).map((tp) => ({
       lat: tp.lat,
       lon: tp.lon,
       radius: tp.radius,
@@ -531,6 +570,12 @@ export class Competition {
       .filter((p) => p.completed)
       .sort((a, b) => num(a.stats.completion_time) - num(b.stats.completion_time));
     const incomplete = this.pilots.filter((p) => !p.completed);
+    // A free-flight day has no completions, so everyone lands in `incomplete`
+    // (the renderer titles that group "Flights"). With no completion time to
+    // rank by, farthest flown leads.
+    if (this.kind === 'free') {
+      incomplete.sort((a, b) => num(b.stats.comp_total_distance) - num(a.stats.comp_total_distance));
+    }
     const columns = metricsFor(this.kind);
 
     return {
@@ -719,11 +764,13 @@ function goalCrossingMs(flight: IgcFlight, task: XcTask, fromMs: number): number
  */
 function cropAndDownsample(
   flight: IgcFlight,
-  task: XcTask,
+  task: XcTask | null,
 ): { track: [number, number][]; trackTimes: number[]; trackAlt: number[] } {
   const { lat, lon, timeMs, gnssAlt } = flight.df;
   const n = timeMs.length;
 
+  // Free flight (no task): gate and completion are both null below, so this
+  // reduces to the full track, downsampled.
   const gate = flight.startGateMs;
   // The flight completes the scored task at ESS; from there, follow the glide
   // into the goal cylinder. End at the goal crossing if reached, else landing.
@@ -731,7 +778,7 @@ function cropAndDownsample(
     flight.stats.completed === true && flight.compDf?.timeMs.length
       ? flight.compDf.timeMs[flight.compDf.timeMs.length - 1]
       : null;
-  const goalMs = essMs !== null ? goalCrossingMs(flight, task, essMs) : null;
+  const goalMs = essMs !== null && task ? goalCrossingMs(flight, task, essMs) : null;
   const endMs = goalMs ?? timeMs[n - 1];
 
   // Drop pilots whose flight ended before the start — they flew and landed

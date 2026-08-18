@@ -62,18 +62,42 @@ async function main(): Promise<void> {
     return;
   }
   const entry = JSON.parse(dataEl.textContent) as {
-    base: string;
+    /** Archive route: "/archive/<comp>/<day>", where the results JSON lives. */
+    base?: string;
+    /** Saved-comp route: data comes from the account's storage, id from ?id=. */
+    saved?: boolean;
     utcOffsetMinutes?: number | null;
   };
-  // "/archive/<comp>/<day>" — annotations are keyed on the pair.
-  const [, comp, day] = entry.base.split('/').filter(Boolean);
 
+  // Annotations are keyed on (comp, day). For an archived day that's the pair
+  // out of the URL; a saved comp files its notes under ("saved", <comp id>),
+  // which is as stable as the comp itself and can't collide with archive slugs.
+  let comp: string;
+  let day: string;
   let data: ArchivedResults;
   try {
     loading.step('Loading flight data…');
-    const res = await fetch(`${entry.base}.json`);
-    if (!res.ok) throw new Error(`${res.status} fetching results`);
-    data = (await res.json()) as ArchivedResults;
+    if (entry.saved) {
+      const id = new URLSearchParams(window.location.search).get('id');
+      if (!id) throw new Error('no saved comp id in the URL');
+      comp = 'saved';
+      day = id;
+      // Dynamic so the archive pages never pull the saved-comps/Supabase code.
+      const lib = await import('../lib/saved-comps');
+      const savedComp = await lib.fetchComp(id);
+      if (!savedComp) throw new Error('comp not found — it may belong to a different account');
+      data = (await lib.loadResults(savedComp)) as ArchivedResults;
+      // The page shipped with a placeholder heading; the name only exists here.
+      const title = lib.savedTitle(savedComp);
+      document.title = `${title} — 3D`;
+      const h1 = document.querySelector('#dockLeftBody h1');
+      if (h1) h1.textContent = title;
+    } else {
+      [, comp, day] = (entry.base ?? '').split('/').filter(Boolean);
+      const res = await fetch(`${entry.base}.json`);
+      if (!res.ok) throw new Error(`${res.status} fetching results`);
+      data = (await res.json()) as ArchivedResults;
+    }
   } catch (err) {
     loading.fail(`Couldn't load flight data: ${(err as Error).message}`);
     return;
@@ -292,7 +316,9 @@ async function main(): Promise<void> {
   // chart, and only for an XC comp — a hike-and-fly day has no par model to be
   // lost against, so the selector goes back to altitude alone.
   const timeline = mountTimeline($('timeAnchor'), mapData, sel, colors, frame, 150_000, {
-    timeLost: mapData.taskKind !== 'hike-and-fly',
+    // Only an XC comp has the par model; hike-and-fly and free-flight days
+    // have nothing to be "lost" against.
+    timeLost: mapData.taskKind === 'xc',
   });
 
   // Notes against a moment on a pilot's flight: pins on the track, text in the

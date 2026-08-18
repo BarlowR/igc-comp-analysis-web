@@ -133,6 +133,11 @@ export function waypointThroughCylinder(
  * completed-or-not flag.
  */
 export function buildGeom(turnpoints: MapTurnpoint[]): OptTask {
+  // A free-flight day has no task at all; an empty geom keeps every consumer's
+  // `cx.length >= 2` guard doing the work instead of crashing on route[0].
+  if (turnpoints.length === 0) {
+    return { cx: [], cy: [], r: [], lat0: 0, lon0: 0, px: [], py: [], distToGoal: [] };
+  }
   const ordered = [...turnpoints].sort((a, b) => a.order - b.order);
   const tps = ordered.slice(startTurnpointIndex(ordered));
   const essI = tps.findIndex((tp) => tp.type === 'ESS');

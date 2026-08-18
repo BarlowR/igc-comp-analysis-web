@@ -28,7 +28,9 @@ function setStep(message: string): void {
 function showGate(): void {
   removeLoading();
   const link = document.getElementById('gate3d-signin') as HTMLAnchorElement | null;
-  if (link) link.href = `/account?next=${encodeURIComponent(window.location.pathname)}`;
+  // Keep the query: the saved-comp viewer (/saved/3d?id=…) is nothing without it.
+  const here = `${window.location.pathname}${window.location.search}`;
+  if (link) link.href = `/account?next=${encodeURIComponent(here)}`;
   document.getElementById('gate3d')?.removeAttribute('hidden');
 }
 
