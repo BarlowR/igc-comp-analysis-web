@@ -27,6 +27,10 @@ if (isConfigured) {
     slot.replaceChildren(link);
   }
 
+  // Notebooks is an account-only page; its nav tab only exists for a session.
+  // The cached peek suffices — the page itself gates properly on open.
+  if (session) document.getElementById('nav-notebooks')?.removeAttribute('hidden');
+
   // Entry points to account-only features (today: the 3D viewer) carry a hint
   // that stays hidden for signed-in users, so a signed-out click isn't a
   // surprise trip to a sign-in wall.

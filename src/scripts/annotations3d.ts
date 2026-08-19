@@ -464,6 +464,13 @@ export function mountAnnotations(opts: AnnotationOptions): AnnotationLayer {
       notes = rows;
       setStatus('');
       refresh();
+      // Deep link from a notebook: #note=<id> lands on this note — pilot
+      // pinned, playhead at the moment (dock3d opens the panel off the same
+      // hash prefix). A stale id (note deleted since it was linked) is simply
+      // not found and the viewer opens as usual.
+      const linked = /^#note=(.+)$/.exec(window.location.hash);
+      const target = linked && notes.find((n) => n.id === decodeURIComponent(linked[1]));
+      if (target) focus(target);
     })
     .catch((err: unknown) => {
       // An expired cached session lands here. The viewer keeps working; the nav

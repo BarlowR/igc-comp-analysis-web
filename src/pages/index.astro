@@ -316,8 +316,21 @@ function compMeta(group: CompGroup): string {
       select(visible[next].dataset.kind ?? '', true);
     });
 
-    // Honour a linked tab (/#hike-and-fly), now and on back/forward.
+    // Honour a linked tab (/#hike-and-fly), now and on back/forward. A comp
+    // link (/#c/<comp>, from a notebook note) instead switches to the comp's
+    // tab, opens its disclosure row and scrolls it into view.
     const fromHash = (): void => {
+      const compLink = /^#c\/(.+)$/.exec(decodeURIComponent(location.hash));
+      if (compLink) {
+        const notes = document.querySelector(`.comp-notes[data-comp="${CSS.escape(compLink[1])}"]`);
+        const details = notes?.closest('details');
+        const panel = notes?.closest<HTMLElement>('.tabpanel');
+        if (!details || !panel) return;
+        select(panel.id.replace('panel-', ''));
+        details.open = true;
+        details.scrollIntoView({ block: 'start', behavior: 'smooth' });
+        return;
+      }
       const kind = location.hash.slice(1);
       if (kind && tabs.some((t) => t.dataset.kind === kind && !t.hidden)) select(kind);
     };

@@ -65,7 +65,7 @@ async function renderList(): Promise<void> {
   // Tasks filed under a comp share one card, titled by the comp; standalone
   // tasks get a card each. Cards keep listMyComps order (newest saved first).
   const byComp = new Map<string, SavedComp[]>();
-  const cardsInOrder: { label: string; tasks: SavedComp[] }[] = [];
+  const cardsInOrder: { label: string; tasks: SavedComp[]; compId?: string }[] = [];
   for (const comp of comps) {
     if (!comp.comp_id) {
       cardsInOrder.push({ label: comp.name, tasks: [comp] });
@@ -76,17 +76,26 @@ async function renderList(): Promise<void> {
     else {
       const tasks: SavedComp[] = [comp];
       byComp.set(comp.comp_id, tasks);
-      cardsInOrder.push({ label: comp.comp?.name ?? comp.comp_id, tasks });
+      cardsInOrder.push({ label: comp.comp?.name ?? comp.comp_id, tasks, compId: comp.comp_id });
     }
   }
-  for (const { label, tasks } of cardsInOrder) {
-    listEl.appendChild(compCard(label, tasks));
+  for (const { label, tasks, compId } of cardsInOrder) {
+    listEl.appendChild(compCard(label, tasks, compId));
+  }
+
+  // Deep link from a notebook: /saved#c/<comp id> scrolls to that comp's card.
+  const linked = /^#c\/(.+)$/.exec(decodeURIComponent(window.location.hash));
+  if (linked) {
+    listEl
+      .querySelector(`.claim-card[data-comp-id="${CSS.escape(linked[1])}"]`)
+      ?.scrollIntoView({ block: 'start', behavior: 'smooth' });
   }
 }
 
 /** One card: the comp's (or standalone task's) name, then a row per task. */
-function compCard(label: string, tasks: SavedComp[]): HTMLElement {
+function compCard(label: string, tasks: SavedComp[], compId?: string): HTMLElement {
   const card = el('div', 'claim-card');
+  if (compId) card.dataset.compId = compId;
   const head = el('div', 'claim-card-head');
   head.appendChild(el('span', 'claim-name', label));
   card.appendChild(head);
