@@ -44,6 +44,24 @@ export async function listAnnotationsForDay(comp: string, day: string): Promise<
   return (data ?? []) as Annotation[];
 }
 
+/**
+ * Every note this account holds, bodies included, newest moment first. The
+ * notebook editor's link picker offers them as targets, labelled by pilot and
+ * excerpt — so unlike listMyAnnotatedDays this DOES fetch the bodies.
+ */
+export async function listMyAnnotations(): Promise<Annotation[]> {
+  const sb = await getSupabase();
+  const user = await currentUser();
+  if (!user) return [];
+
+  const { data, error } = await sb
+    .from('annotations')
+    .select(COLUMNS)
+    .order('time_ms', { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as Annotation[];
+}
+
 /** One archived day this account has written notes on. */
 export interface AnnotatedDay {
   comp: string;

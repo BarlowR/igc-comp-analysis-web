@@ -114,7 +114,7 @@ function setupDock(side: Side, label: string): void {
   // Arriving on a "N notes" link from the account page: open the dock it points
   // at, whatever was stored. Landing on a collapsed rail would look like the
   // notes had gone missing.
-  if (side === 'right' && window.location.hash === '#notes') collapsed = false;
+  if (side === 'right' && window.location.hash.startsWith('#note')) collapsed = false;
 
   const apply = (): void => {
     // `width` is the preference and survives; what a narrow window can actually
@@ -220,7 +220,7 @@ export function mountDocks(): void {
   // stored. The one exception is arriving on a "N notes" link, which is a
   // request to see the notes — landing on a rail would read as losing them.
   if (isCompact()) {
-    const keep = window.location.hash === '#notes' ? 'right' : null;
+    const keep = window.location.hash.startsWith('#note') ? 'right' : null;
     for (const [side, handle] of docks) if (side !== keep) handle.close();
   }
 }

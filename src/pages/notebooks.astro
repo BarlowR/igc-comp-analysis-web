@@ -1,0 +1,39 @@
+---
+// Notebooks: user-created collections of markdown notes, with links into the
+// archive — comps, tasks, and single annotations. Account-only; everything is
+// client-rendered (the site is static, the data is per-account). Without ?id=
+// this lists the account's notebooks; with ?id=<uuid> it opens one
+// (src/scripts/notebooks.ts).
+import Base from '../layouts/Base.astro';
+---
+
+<Base title="Notebooks — Outclimb.app">
+  <header class="hero">
+    <h1 id="nb-title">Notebooks</h1>
+  </header>
+
+  <main>
+    <section class="card account-card" id="nb-list-card" hidden>
+      <div id="nb-list" class="claims-list"></div>
+      <form id="nb-create" class="account-form">
+        <label class="field-label" for="nb-name">New notebook</label>
+        <input id="nb-name" type="text" maxlength="120" required placeholder="e.g. 2026 season" />
+        <button type="submit" class="account-btn">Create</button>
+      </form>
+    </section>
+
+    <section id="nb-notes" hidden>
+      <div id="nb-note-list"></div>
+      <div class="nb-actions">
+        <button id="nb-add" type="button" class="account-btn">＋ New note</button>
+        <a id="nb-back" class="backlink" href="/notebooks">← All notebooks</a>
+      </div>
+    </section>
+
+    <p id="status" class="status" role="status" aria-live="polite"></p>
+  </main>
+
+  <script>
+    import '../scripts/notebooks.ts';
+  </script>
+</Base>

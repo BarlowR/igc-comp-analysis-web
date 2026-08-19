@@ -1722,3 +1722,249 @@ table.stats td.name {
 .save-form select {
   max-width: 24rem;
 }
+
+/* --------------------------------------------------------------- notebooks --
+   /notebooks (src/scripts/notebooks.ts): rendered markdown notes and their
+   editor. The note body reuses the site's type; only markdown-specific
+   elements need rules. */
+.nb-note-body {
+  overflow-wrap: anywhere;
+}
+
+.nb-note-body h3,
+.nb-note-body h4 {
+  margin: 0.6rem 0 0.4rem;
+  color: var(--text);
+  font-weight: 400;
+}
+
+.nb-note-body p {
+  margin: 0.4rem 0;
+}
+
+.nb-note-body pre {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.6rem 0.8rem;
+  overflow-x: auto;
+  font-size: 0.85rem;
+}
+
+.nb-note-body code {
+  background: rgba(112, 90, 144, 0.12);
+  padding: 0.05rem 0.3rem;
+  border-radius: 4px;
+  font-size: 0.9em;
+}
+
+.nb-note-body pre code {
+  background: none;
+  padding: 0;
+}
+
+.nb-note-body blockquote {
+  margin: 0.5rem 0;
+  padding: 0.1rem 0.9rem;
+  border-left: 3px solid var(--accent);
+  color: var(--muted);
+}
+
+.nb-note-body a {
+  color: var(--accent-strong);
+}
+
+.nb-note-foot {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  margin-top: 0.9rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--border);
+}
+
+.nb-danger:hover:not(:disabled) {
+  color: #9b2c2c;
+}
+
+.nb-actions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin: 1rem 0 2rem;
+}
+
+.nb-tools {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.6rem;
+}
+
+.nb-picker {
+  max-width: 24rem;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.4rem 0.5rem;
+  font: inherit;
+  font-size: 0.85rem;
+}
+
+.nb-text {
+  width: 100%;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.6rem 0.8rem;
+  font: inherit;
+  font-size: 0.9rem;
+  /* The editor auto-grows to its content (notebooks.ts); a manual resize
+     handle would only fight that, and hiding overflow kills the flash of a
+     scrollbar between input and re-measure. */
+  resize: none;
+  overflow-y: hidden;
+}
+
+.nb-text:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* /link slash-command menu in the note editor (mountSlashMenu). Anchored at
+   the caret inside .nb-text-wrap. */
+.nb-text-wrap {
+  position: relative;
+}
+
+.nb-slash {
+  position: absolute;
+  z-index: 5;
+  width: min(340px, 90%);
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  box-shadow: 0 6px 20px rgba(20, 12, 12, 0.18);
+  padding: 0.4rem;
+}
+
+.nb-slash-search {
+  width: 100%;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.35rem 0.5rem;
+  font: inherit;
+  font-size: 0.85rem;
+}
+
+.nb-slash-list {
+  max-height: 15rem;
+  overflow-y: auto;
+  margin-top: 0.3rem;
+}
+
+.nb-slash-group {
+  color: var(--muted);
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0.35rem 0.4rem 0.1rem;
+}
+
+.nb-slash-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  padding: 0.3rem 0.4rem;
+  font: inherit;
+  font-size: 0.85rem;
+  color: var(--text);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nb-slash-item:hover,
+.nb-slash-item.active {
+  background: rgba(112, 90, 144, 0.16);
+}
+
+/* One tree row: the pickable label, plus a › drill-in button when the node
+   has children (comp → task → pilot → annotation). */
+.nb-slash-row {
+  display: flex;
+  align-items: stretch;
+}
+
+.nb-slash-row .nb-slash-item {
+  flex: 1;
+  min-width: 0; /* let the label ellipsize inside the flex row */
+}
+
+.nb-slash-drill {
+  background: none;
+  border: none;
+  border-radius: 6px;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0 0.5rem;
+  cursor: pointer;
+}
+
+.nb-slash-drill:hover {
+  background: rgba(112, 90, 144, 0.16);
+  color: var(--text);
+}
+
+/* "‹ parent" row at the top of a drilled-in level. */
+.nb-slash-up {
+  color: var(--muted);
+}
+
+/* "← Back to note" floating chip (src/scripts/back-chip.ts). left/top are set
+   inline — the chip is draggable and remembers where it was put. */
+.back-chip {
+  position: fixed;
+  z-index: 30; /* above the 3D viewer's docks and scrubber */
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  box-shadow: 0 6px 20px rgba(20, 12, 12, 0.18);
+  padding: 0.3rem 0.45rem 0.3rem 0.9rem;
+  font-size: 0.85rem;
+  cursor: grab;
+  user-select: none;
+  touch-action: none; /* pointer-event dragging on touch screens */
+}
+
+.back-chip a {
+  color: var(--accent-strong);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.back-chip button {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.8rem;
+  padding: 0.1rem 0.35rem;
+  cursor: pointer;
+}
+
+.back-chip button:hover {
+  color: var(--text);
+}
