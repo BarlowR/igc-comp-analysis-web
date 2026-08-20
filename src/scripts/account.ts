@@ -9,6 +9,7 @@
 import { byId as el, describeError, setStatus } from '../lib/dom';
 import { getSupabase, isConfigured, readCachedSession } from '../lib/supabase';
 import { mountClaims } from './account-claims';
+import { refreshNavAccount } from './nav-account';
 
 const unconfigured = el('account-unconfigured');
 const loading = el('account-loading');
@@ -120,6 +121,7 @@ let recovering = false;
 async function renderSignedIn(email: string | null) {
   if (emailLabel) emailLabel.textContent = email ?? '';
   show(signedIn);
+  refreshNavAccount(); // the chip may still say "Sign in" from before this sign-in
 
   if (!claimsMounted) {
     claimsMounted = true;
@@ -364,6 +366,7 @@ signOutButton?.addEventListener('click', async () => {
     const sb = await getSupabase();
     await sb.auth.signOut();
     show(signedOut);
+    refreshNavAccount(); // the chip still shows the signed-out identity otherwise
     setStatus(signInStatus, 'Signed out.', 'ok');
   } catch (err) {
     setStatus(accountStatus, describe(err), 'error');
@@ -383,12 +386,12 @@ deleteAccountButton?.addEventListener('click', async () => {
   if (!sure) return;
   deleteAccountButton.disabled = true;
   try {
-    // Saved-comp storage first, through the same per-comp path the saved page
-    // uses — the owner's API delete is the clean removal; the delete_account
-    // RPC (migration 0011) only sweeps stray object rows after it.
+    // Storage first, via the Storage API (only the still-existing owner may
+    // delete these files — the delete_account RPC cannot touch storage). The
+    // rows all cascade from the auth user, so no per-comp row deletion here.
     setStatus(accountStatus, 'Removing saved comps…');
-    const { listMyComps, deleteComp } = await import('../lib/saved-comps');
-    for (const comp of await listMyComps()) await deleteComp(comp.id);
+    const { emptyMyStorage } = await import('../lib/saved-comps');
+    await emptyMyStorage();
 
     setStatus(accountStatus, 'Deleting your account…');
     const sb = await getSupabase();
@@ -399,6 +402,7 @@ deleteAccountButton?.addEventListener('click', async () => {
     // 403; clear the local session and show the signed-out card.
     await sb.auth.signOut({ scope: 'local' });
     show(signedOut);
+    refreshNavAccount(); // the chip still shows the deleted identity otherwise
     setStatus(signInStatus, 'Your account and its data are deleted.', 'ok');
   } catch (err) {
     setStatus(accountStatus, describe(err), 'error');

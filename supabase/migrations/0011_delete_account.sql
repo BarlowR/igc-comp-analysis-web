@@ -6,11 +6,12 @@
 -- (pilot_claims, annotations, comp_notes, saved_comps, user_comps, notebooks,
 -- notebook_notes), so the single delete removes all of the account's rows.
 --
--- Storage: the client empties its saved-comps folders first through the
--- normal API path (owners hold delete rights on their folder — migration
--- 0006), which is the clean way to remove objects. The sweep here only
--- catches rows a half-finished upload left behind; it removes the reference
--- (the file becomes unreachable) even where the backing blob lingers.
+-- Storage is NOT touched here: direct deletes on storage.objects are not
+-- allowed, so the client empties its saved-comps folder first through the
+-- Storage API (owners hold delete rights on their folder — migration 0006;
+-- see emptyMyStorage in src/lib/saved-comps.ts). The client must finish that
+-- before calling this: once the user row is gone, the folder's RLS owner
+-- check can never match again and the objects become undeletable.
 
 create or replace function public.delete_account()
 returns void
@@ -22,10 +23,6 @@ begin
   if auth.uid() is null then
     raise exception 'not signed in';
   end if;
-
-  delete from storage.objects
-   where bucket_id = 'saved-comps'
-     and (storage.foldername(name))[1] = auth.uid()::text;
 
   delete from auth.users where id = auth.uid();
 end;

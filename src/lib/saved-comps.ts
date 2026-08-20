@@ -312,6 +312,50 @@ export async function deleteComp(id: string): Promise<void> {
   if (notesError) throw notesError;
 }
 
+/**
+ * Remove EVERY object under the signed-in user's saved-comps folder, via the
+ * Storage API — account deletion's storage step. Unlike per-comp deletion this
+ * also clears folders no saved_comps row references (a save that failed
+ * halfway), and it paginates the listings: it runs immediately before the
+ * account itself is deleted, after which the folder's RLS owner check can
+ * never match again and anything left behind becomes undeletable.
+ */
+export async function emptyMyStorage(): Promise<void> {
+  const sb = await getSupabase();
+  const uid = await requireUid();
+
+  const PAGE = 1000;
+  const listAll = async (dir: string) => {
+    const all: { id: string | null; name: string }[] = [];
+    for (let offset = 0; ; offset += PAGE) {
+      const { data, error } = await sb.storage.from(BUCKET).list(dir, { limit: PAGE, offset });
+      if (error) throw error;
+      all.push(...(data ?? []));
+      if ((data ?? []).length < PAGE) return all;
+    }
+  };
+
+  // list() is not recursive. The top level holds one folder per comp (as
+  // id:null placeholder entries), each holding files plus an igc/ subfolder.
+  const paths: string[] = [];
+  for (const entry of await listAll(uid)) {
+    if (entry.id) {
+      paths.push(`${uid}/${entry.name}`); // a stray file at the top level
+      continue;
+    }
+    for (const dir of [`${uid}/${entry.name}`, `${uid}/${entry.name}/igc`]) {
+      for (const item of await listAll(dir)) {
+        if (item.id) paths.push(`${dir}/${item.name}`);
+      }
+    }
+  }
+
+  for (let i = 0; i < paths.length; i += PAGE) {
+    const { error } = await sb.storage.from(BUCKET).remove(paths.slice(i, i + PAGE));
+    if (error) throw error;
+  }
+}
+
 // ---- user comps -------------------------------------------------------------
 // The named groups the save form files tasks under (migration 0007). Deleting
 // one un-groups its tasks (comp_id goes null server-side); the tasks stay.
