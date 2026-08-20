@@ -253,6 +253,12 @@ export interface Timeline {
   seek(ms: number): void;
   /** Replace the ticks drawn along the altitude plot's time axis. */
   setMarkers(marks: TimeMarker[]): void;
+  /** The playhead, epoch ms. */
+  now(): number;
+  /** [tMin, tMax] of the day's tracks — the scrubbable range. */
+  range(): [number, number];
+  /** Called on every playhead move (scrub, playback, seek). Returns an unsubscribe. */
+  onTime(fn: (ms: number) => void): () => void;
 }
 
 /**
@@ -436,10 +442,12 @@ export function mountTimeline(
 
   showActive();
 
+  const timeListeners = new Set<(ms: number) => void>();
   const render = (): void => {
     label.textContent = formatClock(currentMs, data.utcOffsetMinutes);
     frame(currentMs);
     plots[active].draw(currentMs); // keep the active plot in sync
+    for (const fn of timeListeners) fn(currentMs);
   };
 
   // Re-run the frame when the selection (or highlight) changes at a fixed time.
@@ -508,7 +516,114 @@ export function mountTimeline(
       markers = next;
       plots[active].draw(currentMs);
     },
+    now: () => currentMs,
+    range: () => [tMin, tMax],
+    onTime(fn) {
+      timeListeners.add(fn);
+      return () => {
+        timeListeners.delete(fn);
+      };
+    },
   };
+}
+
+
+/**
+ * Pointer scrubbing with a precision mode, the way a phone's video scrubber
+ * works: drag along the plot and the playhead follows the finger 1:1; slide the
+ * finger up (or down) off the plot while still dragging and the same sideways
+ * movement scrubs at ¼, 1/10 or 1/50 speed. On a phone the plot is a few
+ * hundred pixels for a whole day — a minute per pixel — so without this a few
+ * seconds is unreachable. A second finger cancels the scrub (and is never read
+ * as one) so a pinch on the chart does nothing.
+ *
+ * `timeFromX` maps a clientX to a time at full speed, `msPerPx` is the axis
+ * scale, `clamp` keeps a fine scrub in range. `onRate` gets the active rate
+ * while dragging (1, 0.25, 0.1, 0.02) and null when the drag ends, for a hint.
+ * `accept` lets a caller keep part of the canvas for something else (the Time
+ * Lost plot's axis gutter).
+ */
+function attachScrub(
+  canvas: HTMLCanvasElement,
+  h: {
+    timeFromX: (clientX: number) => number;
+    msPerPx: () => number;
+    clamp: (ms: number) => number;
+    onScrub: (ms: number) => void;
+    onRate?: (rate: number | null) => void;
+    accept?: (e: PointerEvent) => boolean;
+  },
+): void {
+  const RATES: [number, number][] = [
+    [40, 1], // within this many px of the plot's edge: 1:1
+    [100, 0.25],
+    [170, 0.1],
+    [Infinity, 0.02],
+  ];
+  let id: number | null = null; // the scrubbing pointer
+  let touches = 0;
+  let t = 0;
+  let lastX = 0;
+  let rate = 1;
+  const stop = (): void => {
+    if (id === null) return;
+    if (canvas.hasPointerCapture(id)) canvas.releasePointerCapture(id);
+    id = null;
+    rate = 1;
+    h.onRate?.(null);
+  };
+  canvas.addEventListener('pointerdown', (e) => {
+    touches++;
+    // Two fingers is a pinch, not a scrub — and it cancels one in progress.
+    if (touches > 1) {
+      stop();
+      return;
+    }
+    if (h.accept && !h.accept(e)) return;
+    id = e.pointerId;
+    try {
+      canvas.setPointerCapture(id);
+    } catch {
+      // A synthetic pointer has nothing to capture; the drag still works
+      // while it stays over the canvas.
+    }
+    t = h.timeFromX(e.clientX);
+    lastX = e.clientX;
+    rate = 1;
+    h.onScrub(t);
+    h.onRate?.(1);
+  });
+  canvas.addEventListener('pointermove', (e) => {
+    if (e.pointerId !== id) return;
+    const r = canvas.getBoundingClientRect();
+    const off = Math.max(r.top - e.clientY, e.clientY - r.bottom, 0);
+    const next = RATES.find(([d]) => off < d)![1];
+    if (next === 1) {
+      // Back on the plot: the finger is the playhead again.
+      t = h.timeFromX(e.clientX);
+    } else {
+      t = h.clamp(t + (e.clientX - lastX) * h.msPerPx() * next);
+    }
+    lastX = e.clientX;
+    if (next !== rate) {
+      rate = next;
+      h.onRate?.(rate);
+    }
+    h.onScrub(t);
+  });
+  const up = (e: PointerEvent): void => {
+    touches = Math.max(0, touches - 1);
+    if (e.pointerId === id) stop();
+  };
+  canvas.addEventListener('pointerup', up);
+  canvas.addEventListener('pointercancel', up);
+}
+
+/** Hint for the plot title while scrubbing at a reduced rate. */
+function rateHint(rate: number | null): string | null {
+  if (rate === null || rate === 1) return null;
+  const label = rate === 0.25 ? '¼' : rate === 0.1 ? '1/10' : '1/50';
+  return `Scrubbing at ${label} speed — further from the chart is finer`;
 }
 
 /** "nice" round tick values spanning [min, max] (~`count` steps). */
@@ -758,21 +873,16 @@ function createAltitudePlot(
     const x = clientX - canvas.getBoundingClientRect().left - PAD.l;
     return tMin + Math.min(1, Math.max(0, x / plotW)) * (tMax - tMin);
   };
-  let dragging = false;
-  canvas.addEventListener('pointerdown', (e) => {
-    dragging = true;
-    canvas.setPointerCapture(e.pointerId);
-    onScrub(timeFromX(e.clientX));
+  const baseTitle = title.textContent;
+  attachScrub(canvas, {
+    timeFromX,
+    msPerPx: () => (plotW > 0 ? (tMax - tMin) / plotW : 0),
+    clamp: (ms) => Math.min(tMax, Math.max(tMin, ms)),
+    onScrub,
+    onRate: (r) => {
+      title.textContent = rateHint(r) ?? baseTitle;
+    },
   });
-  canvas.addEventListener('pointermove', (e) => {
-    if (dragging) onScrub(timeFromX(e.clientX));
-  });
-  const endDrag = (e: PointerEvent): void => {
-    dragging = false;
-    if (canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
-  };
-  canvas.addEventListener('pointerup', endDrag);
-  canvas.addEventListener('pointercancel', endDrag);
 
   return draw;
 }
@@ -1163,35 +1273,42 @@ function createTimeToGoPlot(
     );
   }
 
-  let dragging: 'time' | 'y' | null = null;
+  // Time scrubbing (with the precision mode) takes the plot; the gutter is
+  // the y-axis pan handle on desktop and is left to the handlers below.
+  const baseTitle = title.textContent;
+  attachScrub(canvas, {
+    timeFromX,
+    msPerPx: () => (plotW > 0 ? (tXMax - tXMin) / plotW : 0),
+    clamp: (ms) => Math.min(tXMax, Math.max(tXMin, ms)),
+    onScrub,
+    onRate: (r) => {
+      title.textContent = rateHint(r) ?? baseTitle;
+    },
+    accept: (e) => !inGutter(e.clientX),
+  });
+  let panning = false;
   let lastPanY = 0;
   canvas.addEventListener('pointerdown', (e) => {
+    if (!inGutter(e.clientX)) return;
     canvas.setPointerCapture(e.pointerId);
-    if (inGutter(e.clientX)) {
-      dragging = 'y';
-      lastPanY = e.clientY;
-      return;
-    }
-    dragging = 'time';
-    onScrub(timeFromX(e.clientX));
+    panning = true;
+    lastPanY = e.clientY;
   });
   canvas.addEventListener('pointermove', (e) => {
-    if (finePointer && !dragging) canvas.style.cursor = inGutter(e.clientX) ? 'ns-resize' : '';
-    if (dragging === 'time') {
-      onScrub(timeFromX(e.clientX));
-    } else if (dragging === 'y' && plotH > 0) {
+    if (finePointer && !panning) canvas.style.cursor = inGutter(e.clientX) ? 'ns-resize' : '';
+    if (panning && plotH > 0) {
       // The data follows the pointer: drag down and the range it sits in rises.
       const dv = ((e.clientY - lastPanY) * (yMax - yMin)) / plotH;
       lastPanY = e.clientY;
       applyY(yMin + dv, yMax + dv);
     }
   });
-  const endDrag = (e: PointerEvent): void => {
-    dragging = null;
+  const endPan = (e: PointerEvent): void => {
+    panning = false;
     if (canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
   };
-  canvas.addEventListener('pointerup', endDrag);
-  canvas.addEventListener('pointercancel', endDrag);
+  canvas.addEventListener('pointerup', endPan);
+  canvas.addEventListener('pointercancel', endPan);
   // Give the axis back to the selection.
   canvas.addEventListener('dblclick', (e) => {
     if (!inGutter(e.clientX)) return;

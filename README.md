@@ -4,7 +4,9 @@ Paragliding competition flight analysis in the browser — a standalone, static
 web app (originally a port of the `comp_analysis.py` tooling in
 [igc-tools](../igc-tools)). Upload an XContest task file and a set of pilot IGC
 tracklogs to get the competition stats table and climb-rate distribution
-charts, or browse the built-in archive with its 2D and 3D replay viewers. No
+charts, or browse the built-in archive with its 2D and 3D replay viewers (the
+3D viewer has a Thermal Cloud pane: the air around a pinned pilot as a cloud of
+vario samples, side by side with the globe). No
 server, no upload — all parsing and analysis runs client-side.
 
 ## Usage

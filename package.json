@@ -21,10 +21,12 @@
     "astro": "^5.0.0",
     "cesium": "^1.143.0",
     "chart.js": "^4.4.0",
-    "leaflet": "^1.9.4"
+    "leaflet": "^1.9.4",
+    "three": "^0.170.0"
   },
   "devDependencies": {
     "@types/leaflet": "^1.9.21",
-    "@types/node": "^26.2.0"
+    "@types/node": "^26.2.0",
+    "@types/three": "^0.170.0"
   }
 }
