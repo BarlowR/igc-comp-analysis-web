@@ -32,6 +32,8 @@ import { $ } from '../lib/dom';
 import type { MapTurnpoint, MapTrack, Results } from '../lib/competition';
 import { decodeResults } from '../lib/results-codec';
 import { haversine } from '../lib/math';
+import type { Timeline } from '../lib/replay';
+import type { ThermalCloud } from './thermal-cloud';
 
 
 /** Per-pilot Cesium handles + metadata for styling and the side panel. */
@@ -248,6 +250,37 @@ async function main(): Promise<void> {
   };
   viewer.scene.preRender.addEventListener(followFrame);
 
+  // The follow-cam's pose about the followed pilot — heading (rad, 0 = north,
+  // clockwise), pitch (rad, negative = looking down) and range (m) — so the
+  // cloud pane can look from the same spot. Null when nobody is followed.
+  const cameraPose = (): { heading: number; pitch: number; range: number } | null => {
+    if (!followPilot) return null;
+    const pe = byPilot.get(followPilot);
+    if (!pe) return null;
+    const { times } = pe.track;
+    const ct = Math.min(times[times.length - 1], Math.max(times[0], scrubMs));
+    const pos = positionAt(pe.track, ct);
+    const a = altAt(pe.track, ct);
+    if (!pos || a == null) return null;
+    const pilotPos = Cesium.Cartesian3.fromDegrees(pos[1], pos[0], a);
+    return {
+      heading: viewer.camera.heading,
+      pitch: viewer.camera.pitch,
+      range: Cesium.Cartesian3.distance(viewer.camera.positionWC, pilotPos),
+    };
+  };
+  // The reverse: the cloud pane was orbited, so turn the globe's follow-cam to
+  // match. The camera already lives in the anchor's ENU frame while following;
+  // re-aim it there at its current range.
+  const setCameraPose = (heading: number, pitch: number): void => {
+    if (!followPilot || !anchor) return;
+    const range = Cesium.Cartesian3.magnitude(viewer.camera.position);
+    viewer.camera.lookAtTransform(
+      Cesium.Transforms.eastNorthUpToFixedFrame(anchor),
+      new Cesium.HeadingPitchRange(heading, pitch, range),
+    );
+  };
+
   // Per-frame update, run by the shared scrubber on every scrub/playback tick
   // and on selection changes: move each pilot marker, then the follow-cam.
   const frame = (t: number): void => {
@@ -323,6 +356,22 @@ async function main(): Promise<void> {
     timeLost: mapData.taskKind === 'xc',
   });
 
+  // "Cloud" pane: the thermal cloud beside the globe, expanded from the tab
+  // on the map's right edge. It follows the pinned pilot and the shared
+  // scrubber; the widget and Three.js are a separate chunk, fetched on the
+  // first expand.
+  if (timeline) {
+    mountCloudPane({
+      tracks,
+      timeline,
+      sel,
+      colors,
+      backHref: entry.saved ? '/saved' : (entry.base ?? '/'),
+      pose: cameraPose,
+      setPose: setCameraPose,
+    });
+  }
+
   // Notes against a moment on a pilot's flight: pins on the track, text in the
   // left panel, pennants on the scrubber. No-ops when accounts are off or nobody
   // is signed in.
@@ -350,6 +399,92 @@ async function main(): Promise<void> {
 
   const field = truncated ? `Top ${topN} of ${ordered.length} pilots` : `${ordered.length} pilots`;
   statusEl.textContent = `${field} — check to show, click a name to pin + follow. Drag the altitude plot or press ▶.`;
+}
+
+// ---- cloud pane -----------------------------------------------------------
+
+/**
+ * Wire the collapsible pane beside the globe (markup in Viewer3d.astro). The
+ * tab toggles it; the first open pulls in the widget chunk and mounts it. Its
+ * anchor is whoever is pinned.
+ */
+function mountCloudPane(opts: {
+  tracks: MapTrack[];
+  timeline: Timeline;
+  sel: Selection;
+  /** Pilot → CSS colour, as the globe draws them. */
+  colors: Map<string, string>;
+  backHref: string;
+  pose: () => { heading: number; pitch: number; range: number } | null;
+  setPose: (heading: number, pitch: number) => void;
+}): void {
+  const pane = document.getElementById('cloudPane');
+  const tab = document.getElementById('cloudTab') as HTMLButtonElement | null;
+  const body = document.getElementById('cloudPaneBody');
+  const grip = pane?.querySelector<HTMLElement>('.cloud-grip');
+  if (!pane || !tab || !body || !grip) return;
+  const WIDTH_KEY = 'cloudPane.width';
+  const MIN_W = 280;
+
+  // Width: dragged by the map-facing edge like the docks, persisted as a
+  // preference; what the window can spare is clamped fresh each time.
+  const split = pane.parentElement!;
+  const ceiling = (): number => Math.max(MIN_W, Math.round(split.clientWidth * 0.65));
+  const stored = Number(localStorage.getItem(WIDTH_KEY));
+  let width = Number.isFinite(stored) && stored >= MIN_W ? stored : 0;
+  const applyWidth = (): void => {
+    if (width) pane.style.width = `${Math.max(MIN_W, Math.min(ceiling(), width))}px`;
+  };
+  applyWidth();
+  let dragging = false;
+  grip.addEventListener('pointerdown', (e) => {
+    dragging = true;
+    pane.classList.add('dragging');
+    grip.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  });
+  grip.addEventListener('pointermove', (e) => {
+    if (!dragging) return;
+    width = Math.round(pane.getBoundingClientRect().right - e.clientX);
+    applyWidth();
+  });
+  const endDrag = (e: PointerEvent): void => {
+    if (!dragging) return;
+    dragging = false;
+    pane.classList.remove('dragging');
+    if (grip.hasPointerCapture(e.pointerId)) grip.releasePointerCapture(e.pointerId);
+    localStorage.setItem(WIDTH_KEY, String(Math.max(MIN_W, Math.min(ceiling(), width))));
+  };
+  grip.addEventListener('pointerup', endDrag);
+  grip.addEventListener('pointercancel', endDrag);
+  window.addEventListener('resize', applyWidth);
+  let widget: ThermalCloud | null = null;
+  let loading = false;
+
+  // Only a pinned pilot anchors the cloud — with no pin the pane asks for one
+  // rather than guessing at the leader.
+  const anchorName = (): string | null => opts.sel.highlight();
+
+  const mount = async (): Promise<void> => {
+    if (widget || loading) return;
+    loading = true;
+    try {
+      const { mountThermalCloud } = await import('./thermal-cloud');
+      widget = mountThermalCloud(body, { ...opts, anchor: anchorName() });
+    } finally {
+      loading = false;
+    }
+  };
+  const setOpen = (open: boolean): void => {
+    pane.classList.toggle('collapsed', !open);
+    tab.setAttribute('aria-expanded', String(open));
+    tab.textContent = open ? '›' : '‹';
+    if (open) void mount();
+    widget?.setActive(open);
+  };
+  tab.addEventListener('click', () => setOpen(pane.classList.contains('collapsed')));
+  opts.sel.onHighlight(() => widget?.setAnchor(anchorName()));
+  // Always starts shut: the globe is the page, the cloud is something you ask for.
 }
 
 // ---- viewer ---------------------------------------------------------------

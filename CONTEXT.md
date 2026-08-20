@@ -121,6 +121,19 @@ npm run preview
 
 Build and a dev-server smoke test both pass.
 
+## Thermal Cloud pane (3D viewer)
+
+`src/scripts/thermal-cloud.ts` (Three.js, lazy chunk) + `src/lib/thermal-cloud.ts`
+(data, unit-tested). A pane beside the globe, opened from the "Thermal Cloud"
+tab on the map's right edge and resizable like the docks. Tracks are resampled
+to a 5 s grid in a local ENU frame; vario is a 10 s centred difference; the
+colour ramp tops out at the day's 90th-percentile lift. It follows the pinned
+pilot and the shared scrubber (no controls of its own), the camera
+heading/pitch is two-way synced with the Cesium follow-cam, zoom is local.
+Stats: pinned pilot's 30 s best/avg; best other climber within 500 m / 200 m
+(teal). Limits: tracks are the decimated day-JSON ones, so vario is smoother
+than an instrument; no mobile fps fallback yet.
+
 ## Possible next steps (not done)
 
 - Visual/manual QA in a real browser (table gradients, chart legend toggling).

@@ -127,7 +127,10 @@ function setupDock(side: Side, label: string): void {
     // what that keys off.
     const compact = isCompact();
     viewer.classList.toggle('compact', compact);
-    const column = compact ? 0 : collapsed ? RAIL_WIDTH : shown;
+    // A dock that isn't shown (the notes dock before accounts check out) takes
+    // no column at all — the inline width would otherwise beat the
+    // stylesheet's `.no-right` zero and leave a blank strip beside the globe.
+    const column = dock.hidden || compact ? 0 : collapsed ? RAIL_WIDTH : shown;
     viewer.style.setProperty(`--dock-${side}`, `${column}px`);
     dock.classList.toggle('collapsed', collapsed);
     // The chevron points the way the dock will move: up out of the bottom edge
