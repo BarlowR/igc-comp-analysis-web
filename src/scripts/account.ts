@@ -1,21 +1,15 @@
-// Account page island: email/password sign-in and sign-up, display name,
-// password change, sign out.
+// Account page island: email/password sign-in and sign-up, password change,
+// sign out. The email is the account's only name — same as Supabase shows.
 //
 // The site is static, so this is the whole auth flow. Password sign-in needs no
 // redirect at all; the email flows still do — password reset, the magic-link
 // fallback for accounts from before passwords existed, and sign-up
 // confirmation. Those land back on /account with ?code=…, and the client
 // exchanges it for a session on load (detectSessionInUrl in lib/supabase.ts).
-import {
-  fetchProfile,
-  getSupabase,
-  isConfigured,
-  readCachedSession,
-  saveDisplayName,
-} from '../lib/supabase';
+import { byId as el, describeError, setStatus } from '../lib/dom';
+import { getSupabase, isConfigured, readCachedSession } from '../lib/supabase';
 import { mountClaims } from './account-claims';
-
-const el = <T extends HTMLElement>(id: string) => document.getElementById(id) as T | null;
+import { refreshNavAccount } from './nav-account';
 
 const unconfigured = el('account-unconfigured');
 const loading = el('account-loading');
@@ -32,26 +26,19 @@ const magicButton = el<HTMLButtonElement>('magic-link');
 const signInStatus = el('signin-status');
 
 const emailLabel = el('account-email');
-const nameForm = el<HTMLFormElement>('name-form');
-const nameInput = el<HTMLInputElement>('display-name');
-const nameStatus = el('name-status');
 const passwordForm = el<HTMLFormElement>('password-form');
 const newPasswordInput = el<HTMLInputElement>('new-password');
 const passwordStatus = el('password-status');
 const signOutButton = el<HTMLButtonElement>('sign-out');
+const deleteAccountButton = el<HTMLButtonElement>('delete-account');
+const accountStatus = el('account-status');
 
 function show(section: HTMLElement | null) {
   for (const s of [unconfigured, loading, signedOut, signedIn]) s?.toggleAttribute('hidden', s !== section);
 }
 
-function setStatus(node: HTMLElement | null, message: string, kind: 'ok' | 'error' | '' = '') {
-  if (!node) return;
-  node.textContent = message;
-  node.className = kind ? `form-status ${kind}` : 'form-status';
-}
-
 function describe(err: unknown): string {
-  const message = err instanceof Error ? err.message : String(err);
+  const message = describeError(err);
   // Supabase rate-limits sign-in/reset emails per address; say something useful.
   if (/rate limit|too many/i.test(message)) return 'Too many sign-in emails. Try again in a few minutes.';
   // Deliberately vague server-side (it won't say whether the email exists);
@@ -134,34 +121,24 @@ let recovering = false;
 async function renderSignedIn(email: string | null) {
   if (emailLabel) emailLabel.textContent = email ?? '';
   show(signedIn);
+  refreshNavAccount(); // the chip may still say "Sign in" from before this sign-in
 
-  // Profile and claims are independent round-trips; run them together rather
-  // than making the claim list wait on the display name.
-  const profilePromise = fetchProfile()
-    .then((profile) => {
-      // Don't clobber something the user has started typing while we waited.
-      if (nameInput && document.activeElement !== nameInput) {
-        nameInput.value = profile?.display_name ?? '';
-      }
-    })
-    .catch((err: unknown) => setStatus(nameStatus, describe(err), 'error'));
-
-  const claimsPromise = claimsMounted ? Promise.resolve() : ((claimsMounted = true), mountClaims());
-  await Promise.all([profilePromise, claimsPromise]);
+  if (!claimsMounted) {
+    claimsMounted = true;
+    await mountClaims();
+  }
 }
 
 /**
- * Paint what the stored session already tells us — that you're signed in, your
- * email, your display name — before supabase-js has even been fetched. Without
- * this the panel sits blank for a second or two on every load while the SDK
- * downloads and the profile query round-trips, which reads as "no username set"
- * rather than "still loading".
+ * Paint what the stored session already tells us — that you're signed in, and
+ * your email — before supabase-js has even been fetched. Without this the
+ * panel sits blank for a second or two on every load while the SDK downloads,
+ * which reads as "signed out" rather than "still loading".
  */
 function prefillFromCache(): boolean {
   const cached = readCachedSession();
   if (!cached) return false;
   if (emailLabel) emailLabel.textContent = cached.email ?? '';
-  if (nameInput && cached.displayName) nameInput.value = cached.displayName;
   show(signedIn);
   return true;
 }
@@ -383,29 +360,61 @@ passwordForm?.addEventListener('submit', async (event) => {
   }
 });
 
-nameForm?.addEventListener('submit', async (event) => {
-  event.preventDefault();
-  setStatus(nameStatus, 'Saving…');
-  try {
-    await saveDisplayName(nameInput?.value ?? '');
-    setStatus(nameStatus, 'Saved.', 'ok');
-  } catch (err) {
-    setStatus(nameStatus, describe(err), 'error');
-  }
-});
-
 signOutButton?.addEventListener('click', async () => {
   signOutButton.disabled = true;
   try {
     const sb = await getSupabase();
     await sb.auth.signOut();
     show(signedOut);
+    refreshNavAccount(); // the chip still shows the signed-out identity otherwise
     setStatus(signInStatus, 'Signed out.', 'ok');
   } catch (err) {
-    setStatus(nameStatus, describe(err), 'error');
+    setStatus(accountStatus, describe(err), 'error');
   } finally {
     signOutButton.disabled = false;
   }
 });
 
-void init();
+// ---- delete account -----------------------------------------------------------
+
+deleteAccountButton?.addEventListener('click', async () => {
+  const sure = window.confirm(
+    'Delete your account? Everything in it goes too — claimed results, notes, ' +
+      'annotations, notebooks, and saved comps with their uploaded tracklogs. ' +
+      'There is no undo.',
+  );
+  if (!sure) return;
+  deleteAccountButton.disabled = true;
+  try {
+    // Storage first, via the Storage API (only the still-existing owner may
+    // delete these files — the delete_account RPC cannot touch storage). The
+    // rows all cascade from the auth user, so no per-comp row deletion here.
+    setStatus(accountStatus, 'Removing saved comps…');
+    const { emptyMyStorage } = await import('../lib/saved-comps');
+    await emptyMyStorage();
+
+    setStatus(accountStatus, 'Deleting your account…');
+    const sb = await getSupabase();
+    const { error } = await sb.rpc('delete_account');
+    if (error) throw error;
+
+    // The user no longer exists server-side, so a global sign-out would just
+    // 403; clear the local session and show the signed-out card.
+    await sb.auth.signOut({ scope: 'local' });
+    show(signedOut);
+    refreshNavAccount(); // the chip still shows the deleted identity otherwise
+    setStatus(signInStatus, 'Your account and its data are deleted.', 'ok');
+  } catch (err) {
+    setStatus(accountStatus, describe(err), 'error');
+    deleteAccountButton.disabled = false;
+  }
+});
+
+void init().catch((err: unknown) => {
+  // Reached when supabase-js itself fails to load or getSession() rejects
+  // (offline, CDN failure). Without this the page sat on whichever panel was
+  // last shown — possibly the cache-prefilled signed-in card — forever.
+  console.error(err);
+  if (signedIn?.hidden !== false) show(signedOut);
+  setStatus(signedIn?.hidden === false ? accountStatus : signInStatus, describe(err), 'error');
+});

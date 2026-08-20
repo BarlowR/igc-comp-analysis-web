@@ -50,7 +50,6 @@ export function getSupabase(): Promise<SupabaseClient> {
 export interface CachedSession {
   userId: string;
   email: string | null;
-  displayName: string | null;
 }
 
 /**
@@ -58,9 +57,9 @@ export interface CachedSession {
  * the nav chip on a page that has no other reason to talk to Supabase.
  *
  * This trusts localStorage: it proves nothing to the server, and a token that
- * expired seconds ago still reads as signed in. That is fine for a name in the
- * nav. Anything that reads or writes data must go through getSupabase(), which
- * validates and refreshes.
+ * expired seconds ago still reads as signed in. That is fine for an email in
+ * the nav. Anything that reads or writes data must go through getSupabase(),
+ * which validates and refreshes.
  */
 export function readCachedSession(): CachedSession | null {
   if (typeof localStorage === 'undefined') return null;
@@ -83,7 +82,6 @@ export function readCachedSession(): CachedSession | null {
     return {
       userId: user.id,
       email: user.email ?? null,
-      displayName: (user.user_metadata?.display_name as string | undefined) ?? null,
     };
   } catch {
     return null;
@@ -111,8 +109,8 @@ export function hasStoredSession(): boolean {
  * The signed-in user, read from the stored session.
  *
  * Deliberately getSession() and not getUser(): getUser() revalidates against
- * /auth/v1/user on every call, so a page that loaded a profile and a claim list
- * paid for three sequential round-trips before it could render. The session is
+ * /auth/v1/user on every call, so a page that loads several lists would pay
+ * for sequential round-trips before it could render. The session is
  * a signed JWT that supabase-js refreshes on its own, and every query it feeds
  * is checked by RLS server-side anyway — trusting it locally to name the user
  * costs nothing.
@@ -125,40 +123,6 @@ export async function currentUser(): Promise<User | null> {
   return session?.user ?? null;
 }
 
-export interface Profile {
-  id: string;
-  display_name: string | null;
-}
-
-/** The signed-in user's profile row, or null if signed out. */
-export async function fetchProfile(): Promise<Profile | null> {
-  const sb = await getSupabase();
-  const user = await currentUser();
-  if (!user) return null;
-
-  const { data, error } = await sb
-    .from('profiles')
-    .select('id, display_name')
-    .eq('id', user.id)
-    .maybeSingle();
-  if (error) throw error;
-  // The signup trigger normally creates this; fall back rather than error out
-  // if a user predates the trigger.
-  return data ?? { id: user.id, display_name: null };
-}
-
-/** Save a display name to both the profile row and the auth metadata (the nav chip reads the latter). */
-export async function saveDisplayName(displayName: string): Promise<void> {
-  const sb = await getSupabase();
-  const user = await currentUser();
-  if (!user) throw new Error('Not signed in.');
-
-  const name = displayName.trim() || null;
-  const { error } = await sb
-    .from('profiles')
-    .upsert({ id: user.id, display_name: name, updated_at: new Date().toISOString() });
-  if (error) throw error;
-
-  const { error: metaError } = await sb.auth.updateUser({ data: { display_name: name } });
-  if (metaError) throw metaError;
-}
+// There is deliberately no profile/display-name layer: the account's email is
+// its identity, exactly as Supabase itself shows it (migration 0009 removed
+// the profiles table).

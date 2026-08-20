@@ -3,15 +3,16 @@
  * day (built server-side from the archived IGC/task files) and renders them.
  * The client never touches the IGC tracklogs and runs no analysis of its own.
  */
-import { renderArchivedResults, type ArchivedResults } from './analysis';
+import { renderArchivedResults } from './analysis';
+import { decodeResults } from '../lib/results-codec';
 import { installDayClaim } from './day-claim';
 import { makeLoading } from './loading-overlay';
+import { $ } from '../lib/dom';
 
 interface ArchiveEntry {
   base: string; // e.g. "/archive/chelan-us-open-2026/day1"
 }
 
-const $ = (id: string) => document.getElementById(id)!;
 
 async function load(): Promise<void> {
   const statusEl = $('status');
@@ -43,13 +44,12 @@ async function load(): Promise<void> {
       );
     });
     loading.step('Rendering…');
-    // The render below is synchronous and takes a noticeable moment on a big
-    // day, so let the step line paint first — otherwise the overlay spends that
-    // moment still claiming to be downloading. (The 3D viewer gets this for
-    // free: it waits on Cesium's first postRender.) One frame to apply the
-    // text, a second to be past its paint.
-    await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
-    renderArchivedResults({ results: data, resultsEl: results, statusEl, threeDUrl: `${entry.base}/3d` });
+    renderArchivedResults({
+      results: decodeResults(data),
+      resultsEl: results,
+      statusEl,
+      threeDUrl: `${entry.base}/3d`,
+    });
     loading.done();
   } catch (err) {
     console.error(err);
@@ -61,18 +61,19 @@ async function load(): Promise<void> {
   }
 }
 
-/** Fetch JSON while reporting download progress (received/total bytes). */
+/** Fetch JSON (the packed wire form — see results-codec.ts) while reporting
+ *  download progress (received/total bytes). */
 async function fetchJsonWithProgress(
   url: string,
   onProgress: (received: number, total: number) => void,
-): Promise<ArchivedResults> {
+): Promise<unknown> {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`${res.status} fetching results`);
   const total = Number(res.headers.get('content-length')) || 0;
 
   // Stream the body so we can report progress; fall back to res.json() if the
   // body isn't readable for some reason.
-  if (!res.body) return res.json() as Promise<ArchivedResults>;
+  if (!res.body) return res.json();
   const reader = res.body.getReader();
   const chunks: Uint8Array[] = [];
   let received = 0;
@@ -90,7 +91,7 @@ async function fetchJsonWithProgress(
     buf.set(c, pos);
     pos += c.length;
   }
-  return JSON.parse(new TextDecoder().decode(buf)) as ArchivedResults;
+  return JSON.parse(new TextDecoder().decode(buf));
 }
 
 void load();

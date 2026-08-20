@@ -8,6 +8,8 @@
 // never innerHTML.
 import { listMyAnnotatedDays, type AnnotatedDay } from '../lib/annotations';
 import { claimPilot, listMyClaims, removeClaim, type PilotClaim } from '../lib/claims';
+import { describeError as describe, el, setStatus as paintStatus } from '../lib/dom';
+import { notesPanelUrl, taskUrls } from '../lib/links';
 import {
   compsForPilot,
   fetchRoster,
@@ -29,24 +31,7 @@ let roster: Roster | null = null;
 let claims: PilotClaim[] = [];
 
 function setStatus(message: string, kind: 'ok' | 'error' | '' = '') {
-  if (!statusEl) return;
-  statusEl.textContent = message;
-  statusEl.className = kind ? `form-status ${kind}` : 'form-status';
-}
-
-function describe(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
-
-function el<K extends keyof HTMLElementTagNameMap>(
-  tag: K,
-  className?: string,
-  text?: string,
-): HTMLElementTagNameMap[K] {
-  const node = document.createElement(tag);
-  if (className) node.className = className;
-  if (text !== undefined) node.textContent = text;
-  return node;
+  paintStatus(statusEl, message, kind);
 }
 
 /** The claimed pilot keys, each with the comps this user owns. */
@@ -71,21 +56,9 @@ function daysForClaims(group: PilotClaim[], pilot: RosterPilot | undefined): Ros
     .filter((d) => d && (ownedComps.has(d.comp) || ownedDays.has(`${d.comp}/${d.day}`)));
 }
 
-/**
- * Where a task's 2D and 3D views live. Notes made in the saved-comp viewer are
- * keyed (comp: 'saved', day: <comp id>) — see track3d.ts — and those pages are
- * query-addressed, not archive paths.
- */
-function dayUrls(day: { comp: string; day: string }): { base: string; threeD: string } {
-  if (day.comp === 'saved') {
-    return { base: `/saved?id=${day.day}`, threeD: `/saved/3d?id=${day.day}` };
-  }
-  return { base: `/archive/${day.comp}/${day.day}`, threeD: `/archive/${day.comp}/${day.day}/3d` };
-}
-
 /** A task row: its name, date and 3D link. Callers append their own extras. */
 function dayRow(day: RosterDay): HTMLLIElement {
-  const urls = dayUrls(day);
+  const urls = taskUrls(day.comp, day.day);
   const item = el('li', 'claim-day');
   const link = el('a', 'claim-day-link', day.dayLabel);
   link.href = urls.base;
@@ -102,7 +75,7 @@ function dayRow(day: RosterDay): HTMLLIElement {
 /** The "N notes" pill linking into the 3D view's notes panel. */
 function notesPill(day: { comp: string; day: string }, count: number): HTMLAnchorElement {
   const notes = el('a', 'claim-day-notes', `${count} note${count === 1 ? '' : 's'}`);
-  notes.href = `${dayUrls(day).threeD}#notes`;
+  notes.href = notesPanelUrl(day.comp, day.day);
   notes.title = 'Open the 3D view with your notes';
   return notes;
 }
@@ -157,7 +130,7 @@ function renderClaims() {
         // notes — the count arrives after the list is painted (and not at all if
         // the annotations table isn't reachable), so it starts hidden.
         const notes = el('a', 'claim-day-notes');
-        notes.href = `/archive/${day.comp}/${day.day}/3d#notes`;
+        notes.href = notesPanelUrl(day.comp, day.day);
         notes.hidden = true;
         notes.dataset.dayKey = `${day.comp}/${day.day}`;
         item.appendChild(notes);

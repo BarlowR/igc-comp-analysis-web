@@ -9,6 +9,8 @@
 // stash) and dismissed with its ×. sessionStorage scopes the whole thing to
 // one tab, which is exactly the "I went down a rabbit hole from my note" span.
 
+import { notebookUrl } from '../lib/links';
+
 const KEY = 'outclimb-back-note';
 const TTL_MS = 6 * 60 * 60 * 1000;
 /** Movement beyond this is a drag, and the click that follows it is swallowed. */
@@ -68,7 +70,7 @@ function mount(): void {
   chip.className = 'back-chip';
 
   const link = document.createElement('a');
-  link.href = `/notebooks?id=${stash.nb}#note-${stash.note}`;
+  link.href = notebookUrl(stash.nb, stash.note);
   link.textContent = '← Back to note';
   link.title = stash.title;
   chip.appendChild(link);

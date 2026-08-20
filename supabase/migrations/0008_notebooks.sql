@@ -22,19 +22,23 @@ create table if not exists public.notebooks (
 
 alter table public.notebooks enable row level security;
 
+drop policy if exists "a user reads only their own notebooks" on public.notebooks;
 create policy "a user reads only their own notebooks"
   on public.notebooks for select to authenticated
   using (auth.uid() = user_id);
 
+drop policy if exists "a user creates only their own notebooks" on public.notebooks;
 create policy "a user creates only their own notebooks"
   on public.notebooks for insert to authenticated
   with check (auth.uid() = user_id);
 
+drop policy if exists "a user updates only their own notebooks" on public.notebooks;
 create policy "a user updates only their own notebooks"
   on public.notebooks for update to authenticated
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
 
+drop policy if exists "a user deletes only their own notebooks" on public.notebooks;
 create policy "a user deletes only their own notebooks"
   on public.notebooks for delete to authenticated
   using (auth.uid() = user_id);
@@ -59,10 +63,12 @@ alter table public.notebook_notes enable row level security;
 
 -- Owner-only, and a note may only land in a notebook the writer owns — the FK
 -- alone would accept another account's notebook id (FK checks bypass RLS).
+drop policy if exists "a user reads only their own notebook notes" on public.notebook_notes;
 create policy "a user reads only their own notebook notes"
   on public.notebook_notes for select to authenticated
   using (auth.uid() = user_id);
 
+drop policy if exists "a user creates notes only in their own notebooks" on public.notebook_notes;
 create policy "a user creates notes only in their own notebooks"
   on public.notebook_notes for insert to authenticated
   with check (
@@ -70,11 +76,13 @@ create policy "a user creates notes only in their own notebooks"
     and exists (select 1 from public.notebooks n where n.id = notebook_id and n.user_id = auth.uid())
   );
 
+drop policy if exists "a user updates only their own notebook notes" on public.notebook_notes;
 create policy "a user updates only their own notebook notes"
   on public.notebook_notes for update to authenticated
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
 
+drop policy if exists "a user deletes only their own notebook notes" on public.notebook_notes;
 create policy "a user deletes only their own notebook notes"
   on public.notebook_notes for delete to authenticated
   using (auth.uid() = user_id);

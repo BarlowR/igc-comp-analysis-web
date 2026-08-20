@@ -19,6 +19,7 @@ import {
   FREE_FLIGHT_SUBSET,
   HIKE_AND_FLY_SUBSET,
 } from '../src/lib/competition.ts';
+import { decodeResults } from '../src/lib/results-codec.ts';
 
 const close = (a: number, b: number, eps = 1e-6): boolean => Math.abs(a - b) <= eps;
 const num = (v: unknown): number => (typeof v === 'number' ? v : NaN);
@@ -141,21 +142,32 @@ test('Competition: reproduces archived day6 constants and satisfies the τ formu
   const ttg = map.timeToGo;
   assert.ok(ttg, 'timeToGo should be present (day6 has finishers)');
   if (!ttg) return;
+  // The par-fit diagnostics are optional in the type (the wire codec strips
+  // them from day.json), but buildMapData always sets them in memory.
+  const { Vcc, hFin, dTask, hRef } = ttg;
+  if (Vcc === undefined || hFin === undefined || dTask === undefined || hRef === undefined) {
+    assert.fail('buildMapData should carry the par-fit diagnostics in memory');
+    return;
+  }
 
   // some pilots completed; constants are finite and sane
   assert.ok(comp.pilots.some((p) => p.completed), 'expected at least one finisher');
-  assert.ok(ttg.M > 0 && ttg.Vcc > 0 && ttg.dTask > 0, `bad constants: ${JSON.stringify(ttg)}`);
-  assert.ok(Number.isFinite(ttg.hFin) && Number.isFinite(ttg.hRef));
+  assert.ok(ttg.M > 0 && Vcc > 0 && dTask > 0, `bad constants: ${JSON.stringify(ttg)}`);
+  assert.ok(Number.isFinite(hFin) && Number.isFinite(hRef));
   // Measured par glide: physically plausible, and not the sparse-day fallback
   // (60 km/h / 7.0) — day6 has plenty of finisher gliding to measure from.
   assert.ok(ttg.Vg > 8 && ttg.Vg < 25, `implausible par glide speed ${ttg.Vg} m/s`);
   assert.ok(ttg.g > 3 && ttg.g < 15, `implausible par glide ratio ${ttg.g}`);
   assert.ok(Math.abs(ttg.Vg - 60 / 3.6) > 1e-9 || Math.abs(ttg.g - 7) > 1e-9, 'glide params look like the fallback');
 
-  // (a) exact reproduction of the stored build output
-  const stored = JSON.parse(readFileSync(DAY_JSON, 'utf8')).map;
-  for (const k of ['M', 'Vcc', 'Vg', 'g', 'pace', 'hFin', 'dTask', 'hRef', 'tauRef'] as const) {
-    assert.ok(close(ttg[k], stored.timeToGo[k], Math.abs(stored.timeToGo[k]) * 1e-9 + 1e-9), `${k}: ${ttg[k]} vs stored ${stored.timeToGo[k]}`);
+  // (a) exact reproduction of the stored build output — through the wire codec,
+  // which is how every client reads it. Only the shipped constants compare; the
+  // diagnostics (Vcc/hFin/dTask/hRef) are stripped from day.json and checked by
+  // formula in (b) instead.
+  const stored = decodeResults(JSON.parse(readFileSync(DAY_JSON, 'utf8'))).map;
+  assert.ok(stored.timeToGo, 'stored day.json should carry timeToGo');
+  for (const k of ['M', 'Vg', 'g', 'pace', 'tauRef'] as const) {
+    assert.ok(close(ttg[k], stored.timeToGo![k], Math.abs(stored.timeToGo![k]) * 1e-9 + 1e-9), `${k}: ${ttg[k]} vs stored ${stored.timeToGo![k]}`);
   }
   assert.equal(map.startMs, stored.startMs);
   assert.equal(map.turnpoints.length, stored.turnpoints.length);
@@ -169,12 +181,12 @@ test('Competition: reproduces archived day6 constants and satisfies the τ formu
   const medComp = median(par.map((p) => num(p.stats.completion_time)));
   const hFinCheck = Math.min(...finishers.map((p) => num(p.stats.comp_finish_msl)).filter(Number.isFinite));
   assert.ok(close(ttg.M, mCheck, 1e-9), `M ${ttg.M} vs median-climb ${mCheck}`);
-  assert.ok(close(ttg.Vcc, ttg.dTask / medComp, 1e-6), `Vcc ${ttg.Vcc} vs dTask/medComp ${ttg.dTask / medComp}`);
-  assert.ok(close(ttg.hFin, hFinCheck, 1e-9), `hFin ${ttg.hFin} vs min-finish ${hFinCheck}`);
+  assert.ok(close(Vcc, dTask / medComp, 1e-6), `Vcc ${Vcc} vs dTask/medComp ${dTask / medComp}`);
+  assert.ok(close(hFin, hFinCheck, 1e-9), `hFin ${hFin} vs min-finish ${hFinCheck}`);
   // tauRef = pace-fitted τ at the reference start state — which by construction
   // is exactly the par pilots' actual median gate→ESS duration in minutes.
-  const owedRef = Math.max(0, ttg.dTask / ttg.g - (ttg.hRef - ttg.hFin));
-  const tauRefCheck = (ttg.pace * (ttg.dTask / ttg.Vg + owedRef / ttg.M)) / 60;
+  const owedRef = Math.max(0, dTask / ttg.g - (hRef - hFin));
+  const tauRefCheck = (ttg.pace * (dTask / ttg.Vg + owedRef / ttg.M)) / 60;
   assert.ok(close(ttg.tauRef, tauRefCheck, 1e-6), `tauRef ${ttg.tauRef} vs formula ${tauRefCheck}`);
   assert.ok(close(ttg.tauRef, medComp / 60, 1e-6), `tauRef ${ttg.tauRef} vs median par duration ${medComp / 60}`);
   assert.ok(ttg.pace > 0.4 && ttg.pace < 1.3, `implausible pace fit ${ttg.pace}`);

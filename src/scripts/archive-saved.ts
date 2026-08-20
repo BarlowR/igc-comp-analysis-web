@@ -15,21 +15,12 @@
 // Everything degrades to nothing: signed out, accounts unconfigured, or a
 // failed fetch simply leaves the page as built. Comp and task names are user
 // input, so rendering is createElement/textContent — never innerHTML.
+import { el } from '../lib/dom';
+import { savedTask3dUrl, savedTaskUrl } from '../lib/links';
 import { deleteComp, listMyComps, savedKind, type SavedComp } from '../lib/saved-comps';
 import { currentUser, hasStoredSession, isConfigured } from '../lib/supabase';
 
 const SAVED_MARK = '✦';
-
-function el<K extends keyof HTMLElementTagNameMap>(
-  tag: K,
-  className?: string,
-  text?: string,
-): HTMLElementTagNameMap[K] {
-  const node = document.createElement(tag);
-  if (className) node.className = className;
-  if (text !== undefined) node.textContent = text;
-  return node;
-}
 
 /** The disclosure chevron the server-rendered comps draw; same geometry. */
 function chevron(): SVGElement {
@@ -55,7 +46,7 @@ function dayCard(task: SavedComp, onGone: () => void): HTMLLIElement {
   const card = el('li', 'day-card');
 
   const link = el('a', 'day-link') as HTMLAnchorElement;
-  link.href = `/saved?id=${task.id}`;
+  link.href = savedTaskUrl(task.id);
   const title = el('div', 'day-title');
   title.appendChild(el('span', 'day-name', task.name));
   link.appendChild(title);
@@ -66,7 +57,7 @@ function dayCard(task: SavedComp, onGone: () => void): HTMLLIElement {
 
   // Same corner control as an archived day card.
   const view3d = el('a', 'day-3d', '◈ 3D') as HTMLAnchorElement;
-  view3d.href = `/saved/3d?id=${task.id}`;
+  view3d.href = savedTask3dUrl(task.id);
   view3d.title = 'Fly this task in 3D';
   view3d.setAttribute('aria-label', `Fly ${task.name} in 3D`);
   card.appendChild(view3d);

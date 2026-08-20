@@ -85,15 +85,8 @@ import Base from '../layouts/Base.astro';
       <div class="account-divider"></div>
 
       <h3>Account</h3>
+      {/* The email is the username — the same identity Supabase shows. */}
       <p class="field-hint">Signed in as <span id="account-email" class="account-email"></span></p>
-
-      <form id="name-form" class="account-form">
-        <label class="field-label" for="display-name">Username</label>
-        <input id="display-name" type="text" name="display_name" maxlength="60"
-          autocomplete="name" />
-        <button type="submit" class="account-btn">Save</button>
-      </form>
-      <p id="name-status" class="form-status" role="status" aria-live="polite"></p>
 
       {/* Also how a password gets SET: accounts predating passwords (magic
           link) and password-reset arrivals both land signed-in and set it here.
@@ -109,6 +102,20 @@ import Base from '../layouts/Base.astro';
       <div class="account-actions">
         <button id="sign-out" type="button" class="account-btn ghost">Sign out</button>
       </div>
+
+      <div class="account-divider"></div>
+
+      <h3>Delete account</h3>
+      <p class="field-hint">
+        Removes your account and everything in it — claimed results, notes,
+        annotations, notebooks, and saved comps with their uploaded tracklogs.
+        There is no undo.
+      </p>
+      <div class="account-actions">
+        <button id="delete-account" type="button" class="account-btn danger">Delete account</button>
+      </div>
+
+      <p id="account-status" class="form-status" role="status" aria-live="polite"></p>
     </section>
   </main>
 

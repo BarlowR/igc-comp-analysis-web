@@ -15,8 +15,10 @@
 // carry it. Compression uses the browser's native CompressionStream; the rare
 // browser without it stores plain files under keys without the .gz suffix, and
 // the suffix decides decompression on the way back.
-import { getSupabase, currentUser } from './supabase';
-import { ANALYSIS_VERSION } from './competition';
+import { isUniqueViolation, requireUid } from './db';
+import { getSupabase } from './supabase';
+import { ANALYSIS_VERSION, type Results } from './competition';
+import { decodeResults, encodeResults } from './results-codec';
 import { parseTaskKind, type TaskKind } from './xctsk';
 
 const BUCKET = 'saved-comps';
@@ -119,13 +121,7 @@ async function download(path: string): Promise<Blob> {
   return data;
 }
 
-/** The signed-in user's id, or a sign-in error — every call here needs it. */
-async function uid(): Promise<string> {
-  const user = await currentUser();
-  if (!user) throw new Error('Not signed in.');
-  return user.id;
-}
-
+/** A saved comp's folder in the bucket: <user id>/<comp id>. */
 const folder = (userId: string, compId: string) => `${userId}/${compId}`;
 
 // The cache key mirrors pack(): .gz when compressed, bare when not. Stored in
@@ -160,13 +156,13 @@ export async function saveComp(opts: {
   /** Null for a free-flight run: no task file exists, none is stored. */
   taskText: string | null;
   igc: { name: string; text: string }[];
-  results: unknown;
+  results: Results;
   pilotCount: number;
   /** User comp to file this task under; null/omitted = standalone. */
   compId?: string | null;
 }): Promise<SavedComp> {
   const sb = await getSupabase();
-  const userId = await uid();
+  const userId = await requireUid();
 
   // Manifest first (keys depend on pack()), then the row, then the files: the
   // row must exist before uploads only in the sense that its id names the
@@ -195,7 +191,7 @@ export async function saveComp(opts: {
 
   const base = folder(userId, comp.id);
   try {
-    const results = await pack(JSON.stringify(opts.results), 'results.json');
+    const results = await pack(JSON.stringify(encodeResults(opts.results)), 'results.json');
     // Sequential rather than Promise.all: N simultaneous uploads trip rate
     // limits sooner and make partial failure messier to clean up.
     if (opts.taskText !== null) {
@@ -236,17 +232,18 @@ export async function fetchComp(id: string): Promise<SavedComp | null> {
   return (data as unknown as SavedComp) ?? null;
 }
 
-/** The cached results JSON, decompressed and parsed. */
-export async function loadResults(comp: SavedComp): Promise<unknown> {
-  const base = folder(await uid(), comp.id);
+/** The cached results, decompressed, parsed and unpacked (results-codec.ts —
+ *  a pre-codec cache passes through decodeResults unchanged). */
+export async function loadResults(comp: SavedComp): Promise<Results> {
+  const base = folder(await requireUid(), comp.id);
   const { blob, key } = await downloadFirst(base, RESULTS_KEYS);
-  return JSON.parse(await unpack(blob, key));
+  return decodeResults(JSON.parse(await unpack(blob, key)));
 }
 
 /** The raw inputs — task text (null on a free-flight save, which stored none)
  *  and every IGC with its original filename. */
 export async function loadInputs(comp: SavedComp): Promise<SavedCompInputs> {
-  const base = folder(await uid(), comp.id);
+  const base = folder(await requireUid(), comp.id);
   const taskKind = savedKind(comp);
   let taskText: string | null = null;
   if (taskKind !== 'free') {
@@ -263,10 +260,10 @@ export async function loadInputs(comp: SavedComp): Promise<SavedCompInputs> {
 }
 
 /** Replace the cached results after a recompute and stamp the engine version. */
-export async function saveResults(comp: SavedComp, results: unknown): Promise<void> {
+export async function saveResults(comp: SavedComp, results: Results): Promise<void> {
   const sb = await getSupabase();
-  const base = folder(await uid(), comp.id);
-  const packed = await pack(JSON.stringify(results), 'results.json');
+  const base = folder(await requireUid(), comp.id);
+  const packed = await pack(JSON.stringify(encodeResults(results)), 'results.json');
   await upload(`${base}/${packed.key}`, packed.blob);
   // A recompute may flip the compression suffix (different browser); drop the
   // other spelling so downloadFirst never finds a stale cache first.
@@ -275,7 +272,7 @@ export async function saveResults(comp: SavedComp, results: unknown): Promise<vo
 
   const { error } = await sb
     .from('saved_comps')
-    .update({ analysis_version: ANALYSIS_VERSION, updated_at: new Date().toISOString() })
+    .update({ analysis_version: ANALYSIS_VERSION }) // updated_at: server trigger (0010)
     .eq('id', comp.id);
   if (error) throw error;
 }
@@ -283,7 +280,7 @@ export async function saveResults(comp: SavedComp, results: unknown): Promise<vo
 /** Delete the row and every stored object under the comp's folder. */
 export async function deleteComp(id: string): Promise<void> {
   const sb = await getSupabase();
-  const base = folder(await uid(), id);
+  const base = folder(await requireUid(), id);
 
   // Files first: if removal dies halfway the row is still there to retry from.
   // list() is not recursive, so the igc/ subfolder is listed separately.
@@ -303,6 +300,60 @@ export async function deleteComp(id: string): Promise<void> {
 
   const { error } = await sb.from('saved_comps').delete().eq('id', id);
   if (error) throw error;
+
+  // 3D-viewer notes on this task live in annotations under (comp='saved',
+  // day=<this id>) with no FK — without this they'd outlive the task and
+  // surface as raw UUIDs in the account page's annotated-days list.
+  const { error: notesError } = await sb
+    .from('annotations')
+    .delete()
+    .eq('comp', 'saved')
+    .eq('day', id);
+  if (notesError) throw notesError;
+}
+
+/**
+ * Remove EVERY object under the signed-in user's saved-comps folder, via the
+ * Storage API — account deletion's storage step. Unlike per-comp deletion this
+ * also clears folders no saved_comps row references (a save that failed
+ * halfway), and it paginates the listings: it runs immediately before the
+ * account itself is deleted, after which the folder's RLS owner check can
+ * never match again and anything left behind becomes undeletable.
+ */
+export async function emptyMyStorage(): Promise<void> {
+  const sb = await getSupabase();
+  const uid = await requireUid();
+
+  const PAGE = 1000;
+  const listAll = async (dir: string) => {
+    const all: { id: string | null; name: string }[] = [];
+    for (let offset = 0; ; offset += PAGE) {
+      const { data, error } = await sb.storage.from(BUCKET).list(dir, { limit: PAGE, offset });
+      if (error) throw error;
+      all.push(...(data ?? []));
+      if ((data ?? []).length < PAGE) return all;
+    }
+  };
+
+  // list() is not recursive. The top level holds one folder per comp (as
+  // id:null placeholder entries), each holding files plus an igc/ subfolder.
+  const paths: string[] = [];
+  for (const entry of await listAll(uid)) {
+    if (entry.id) {
+      paths.push(`${uid}/${entry.name}`); // a stray file at the top level
+      continue;
+    }
+    for (const dir of [`${uid}/${entry.name}`, `${uid}/${entry.name}/igc`]) {
+      for (const item of await listAll(dir)) {
+        if (item.id) paths.push(`${dir}/${item.name}`);
+      }
+    }
+  }
+
+  for (let i = 0; i < paths.length; i += PAGE) {
+    const { error } = await sb.storage.from(BUCKET).remove(paths.slice(i, i + PAGE));
+    if (error) throw error;
+  }
 }
 
 // ---- user comps -------------------------------------------------------------
@@ -327,7 +378,7 @@ export async function listMyUserComps(): Promise<UserComp[]> {
  */
 export async function createUserComp(name: string): Promise<UserComp> {
   const sb = await getSupabase();
-  const userId = await uid();
+  const userId = await requireUid();
   const trimmed = name.trim();
   if (!trimmed) throw new Error('Comp name is empty.');
 
@@ -338,7 +389,7 @@ export async function createUserComp(name: string): Promise<UserComp> {
     .single();
   if (!error) return data as UserComp;
 
-  if (error.code === '23505') {
+  if (isUniqueViolation(error)) {
     const { data: existing, error: err2 } = await sb
       .from('user_comps')
       .select('id, name, created_at')

@@ -1370,6 +1370,18 @@ table.stats td.name {
   border-color: var(--accent);
 }
 
+/* Destructive actions (delete account): quiet until hovered, and never the
+   filled accent colour a routine button carries. */
+.account-btn.danger {
+  background: transparent;
+  color: #9b2c2c;
+  border: 1px solid var(--border);
+}
+
+.account-btn.danger:hover:not(:disabled) {
+  border-color: #9b2c2c;
+}
+
 /* Reserves no height when empty, so the card doesn't jump on the first status. */
 .form-status {
   margin: 0.6rem 0 0;

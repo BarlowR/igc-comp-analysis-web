@@ -4,11 +4,12 @@
  * can be saved to the signed-in user's account (lib/saved-comps.ts); the inputs
  * and results of the LAST run are held here for that.
  */
-import { runAnalysis, type ArchivedResults } from './analysis';
+import { runAnalysis } from './analysis';
+import type { Results } from '../lib/competition';
+import { $ } from '../lib/dom';
+import { savedTask3dUrl } from '../lib/links';
 import { parseTaskKind, type TaskKind } from '../lib/xctsk';
 import { hasStoredSession, isConfigured } from '../lib/supabase';
-
-const $ = (id: string) => document.getElementById(id)!;
 
 const taskInput = $('task-input') as HTMLInputElement;
 const taskField = $('task-field');
@@ -36,7 +37,7 @@ let lastRun: {
   /** Raw radio value — the save-time category ('free' has its own archive tab). */
   rawKind: string;
   taskKind: TaskKind;
-  results: ArchivedResults;
+  results: Results;
 } | null = null;
 
 /**
@@ -209,7 +210,7 @@ saveForm.addEventListener('submit', async (event) => {
       pilotCount: lastRun.results.table.completed.length + lastRun.results.table.incomplete.length,
       compId,
     });
-    addMapThreeDLink(`/saved/3d?id=${comp.id}`);
+    addMapThreeDLink(savedTask3dUrl(comp.id));
     saveStatus.className = 'form-status ok';
     saveStatus.replaceChildren('Saved. ');
     const link = document.createElement('a');

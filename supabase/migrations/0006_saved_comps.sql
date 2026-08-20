@@ -44,19 +44,23 @@ alter table public.saved_comps enable row level security;
 -- Private, like annotations and comp notes: a saved comp is visible only to the
 -- account that saved it. Sharing-by-link, if ever wanted, gets its own table
 -- (see the note at the end of 0004) — nothing here anticipates it.
+drop policy if exists "a user reads only their own saved comps" on public.saved_comps;
 create policy "a user reads only their own saved comps"
   on public.saved_comps for select to authenticated
   using (auth.uid() = user_id);
 
+drop policy if exists "a user creates only their own saved comps" on public.saved_comps;
 create policy "a user creates only their own saved comps"
   on public.saved_comps for insert to authenticated
   with check (auth.uid() = user_id);
 
+drop policy if exists "a user updates only their own saved comps" on public.saved_comps;
 create policy "a user updates only their own saved comps"
   on public.saved_comps for update to authenticated
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
 
+drop policy if exists "a user deletes only their own saved comps" on public.saved_comps;
 create policy "a user deletes only their own saved comps"
   on public.saved_comps for delete to authenticated
   using (auth.uid() = user_id);
@@ -76,19 +80,23 @@ insert into storage.buckets (id, name, public, file_size_limit)
 values ('saved-comps', 'saved-comps', false, 52428800)
 on conflict (id) do nothing;
 
+drop policy if exists "saved comp files are readable by their owner" on storage.objects;
 create policy "saved comp files are readable by their owner"
   on storage.objects for select to authenticated
   using (bucket_id = 'saved-comps' and (storage.foldername(name))[1] = auth.uid()::text);
 
+drop policy if exists "a user uploads only into their own saved comp folder" on storage.objects;
 create policy "a user uploads only into their own saved comp folder"
   on storage.objects for insert to authenticated
   with check (bucket_id = 'saved-comps' and (storage.foldername(name))[1] = auth.uid()::text);
 
+drop policy if exists "a user replaces only their own saved comp files" on storage.objects;
 create policy "a user replaces only their own saved comp files"
   on storage.objects for update to authenticated
   using (bucket_id = 'saved-comps' and (storage.foldername(name))[1] = auth.uid()::text)
   with check (bucket_id = 'saved-comps' and (storage.foldername(name))[1] = auth.uid()::text);
 
+drop policy if exists "a user deletes only their own saved comp files" on storage.objects;
 create policy "a user deletes only their own saved comp files"
   on storage.objects for delete to authenticated
   using (bucket_id = 'saved-comps' and (storage.foldername(name))[1] = auth.uid()::text);

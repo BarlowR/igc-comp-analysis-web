@@ -11,9 +11,11 @@
 // is only fetched once readCachedSession() says someone is signed in. Signed-out
 // visitors pay nothing and see nothing.
 import { claimDay, listMyClaimsForDay, removeClaim, type PilotClaim } from '../lib/claims';
+import { describeError as describe, el, setStatus as paintStatus } from '../lib/dom';
 import { slugifyPilot } from '../lib/pilots';
 import { isConfigured, readCachedSession } from '../lib/supabase';
-import { setRenderHooks, type Selection } from './analysis';
+import { setRenderHooks } from './analysis';
+import type { Selection } from '../lib/replay';
 
 interface DayRef {
   comp: string;
@@ -27,21 +29,6 @@ let mounted: { pilot: string; node: HTMLElement } | null = null;
 let selection: Selection | null = null;
 let autoPinned = false;
 
-function el<K extends keyof HTMLElementTagNameMap>(
-  tag: K,
-  className?: string,
-  text?: string,
-): HTMLElementTagNameMap[K] {
-  const node = document.createElement(tag);
-  if (className) node.className = className;
-  if (text !== undefined) node.textContent = text;
-  return node;
-}
-
-function describe(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
-
 function claimFor(pilot: string): PilotClaim | undefined {
   const key = slugifyPilot(pilot);
   return claims?.find((c) => c.pilot_key === key);
@@ -49,9 +36,7 @@ function claimFor(pilot: string): PilotClaim | undefined {
 
 function setStatus(node: HTMLElement, message: string, kind: 'ok' | 'error' | '' = '') {
   const status = node.querySelector('.day-claim-status');
-  if (!(status instanceof HTMLElement)) return;
-  status.textContent = message;
-  status.className = kind ? `day-claim-status ${kind}` : 'day-claim-status';
+  paintStatus(status instanceof HTMLElement ? status : null, message, kind);
 }
 
 /** Repaint the control in place — pinnedExtra is synchronous, the data isn't. */

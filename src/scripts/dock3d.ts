@@ -16,6 +16,7 @@
  * at a time, closing to a tab in a bottom corner. The columns go to zero and the
  * stylesheet moves both docks into the map cell.
  */
+import { wantsNotesDock } from '../lib/links';
 
 const MIN_WIDTH = 200;
 const MAX_WIDTH = 560;
@@ -114,7 +115,7 @@ function setupDock(side: Side, label: string): void {
   // Arriving on a "N notes" link from the account page: open the dock it points
   // at, whatever was stored. Landing on a collapsed rail would look like the
   // notes had gone missing.
-  if (side === 'right' && window.location.hash.startsWith('#note')) collapsed = false;
+  if (side === 'right' && wantsNotesDock(window.location.hash)) collapsed = false;
 
   const apply = (): void => {
     // `width` is the preference and survives; what a narrow window can actually
@@ -220,7 +221,7 @@ export function mountDocks(): void {
   // stored. The one exception is arriving on a "N notes" link, which is a
   // request to see the notes — landing on a rail would read as losing them.
   if (isCompact()) {
-    const keep = window.location.hash.startsWith('#note') ? 'right' : null;
+    const keep = wantsNotesDock(window.location.hash) ? 'right' : null;
     for (const [side, handle] of docks) if (side !== keep) handle.close();
   }
 }
