@@ -5,7 +5,8 @@
 //
 // Comp names are user input, so all rendering is createElement/textContent —
 // never innerHTML.
-import { renderArchivedResults, runAnalysis, type ArchivedResults } from './analysis';
+import { renderArchivedResults, runAnalysis, computeResults } from './analysis';
+import { ANALYSIS_VERSION } from '../lib/competition';
 import {
   deleteComp,
   fetchComp,
@@ -17,27 +18,19 @@ import {
   savedTitle,
   type SavedComp,
 } from '../lib/saved-comps';
-import { currentUser, hasStoredSession, isConfigured } from '../lib/supabase';
+import { gateAccountPage } from '../lib/account-gate';
+import { $, el } from '../lib/dom';
+import { parseCompHash, savedTask3dUrl, savedTaskUrl } from '../lib/links';
 
-const $ = (id: string) => document.getElementById(id)!;
 const statusEl = $('status');
 const resultsEl = $('results');
 const listCard = $('saved-list-card');
 const listEl = $('saved-list');
 const staleCard = $('stale-card');
-const recomputeBtn = $('recompute-btn') as HTMLButtonElement;
+const recomputeBtn = $<HTMLButtonElement>('recompute-btn');
+const staleAllCard = $('stale-all-card');
+const recomputeAllBtn = $<HTMLButtonElement>('recompute-all-btn');
 const titleEl = $('saved-title');
-
-function el<K extends keyof HTMLElementTagNameMap>(
-  tag: K,
-  className?: string,
-  text?: string,
-): HTMLElementTagNameMap[K] {
-  const node = document.createElement(tag);
-  if (className) node.className = className;
-  if (text !== undefined) node.textContent = text;
-  return node;
-}
 
 function setStatus(message: string): void {
   statusEl.textContent = message;
@@ -51,6 +44,11 @@ async function renderList(): Promise<void> {
   setStatus('');
   listCard.removeAttribute('hidden');
   listEl.replaceChildren();
+
+  // One banner for every stale task, so a version bump is one click rather
+  // than a visit to each task's own recompute button.
+  staleTasks = comps.filter(isStale);
+  staleAllCard.toggleAttribute('hidden', staleTasks.length === 0);
 
   if (comps.length === 0) {
     const hint = el('p', 'field-hint', 'Nothing saved yet. Run a day on the ');
@@ -84,10 +82,10 @@ async function renderList(): Promise<void> {
   }
 
   // Deep link from a notebook: /saved#c/<comp id> scrolls to that comp's card.
-  const linked = /^#c\/(.+)$/.exec(decodeURIComponent(window.location.hash));
+  const linked = parseCompHash(window.location.hash);
   if (linked) {
     listEl
-      .querySelector(`.claim-card[data-comp-id="${CSS.escape(linked[1])}"]`)
+      .querySelector(`.claim-card[data-comp-id="${CSS.escape(linked)}"]`)
       ?.scrollIntoView({ block: 'start', behavior: 'smooth' });
   }
 }
@@ -110,7 +108,7 @@ function taskRow(comp: SavedComp, list: HTMLElement, card: HTMLElement): HTMLLIE
   const item = el('li', 'claim-day');
 
   const link = el('a', 'claim-day-link', comp.name) as HTMLAnchorElement;
-  link.href = `/saved?id=${comp.id}`;
+  link.href = savedTaskUrl(comp.id);
   item.appendChild(link);
 
   const date = new Date(comp.created_at);
@@ -120,7 +118,7 @@ function taskRow(comp: SavedComp, list: HTMLElement, card: HTMLElement): HTMLLIE
   );
 
   const view3d = el('a', 'claim-day-3d', '◈ 3D') as HTMLAnchorElement;
-  view3d.href = `/saved/3d?id=${comp.id}`;
+  view3d.href = savedTask3dUrl(comp.id);
   view3d.title = 'Fly this task in 3D';
   item.appendChild(view3d);
 
@@ -162,14 +160,50 @@ async function renderComp(id: string): Promise<void> {
   titleEl.textContent = title;
   document.title = `${title} — Outclimb.app`;
 
-  const results = (await loadResults(comp)) as ArchivedResults;
-  renderArchivedResults({ results, resultsEl, statusEl, threeDUrl: `/saved/3d?id=${comp.id}` });
+  const results = await loadResults(comp);
+  renderArchivedResults({ results, resultsEl, statusEl, threeDUrl: savedTask3dUrl(comp.id) });
 
   if (isStale(comp)) {
     staleCard.removeAttribute('hidden');
     recomputeBtn.addEventListener('click', () => void recompute(comp), { once: true });
   }
 }
+
+/** The list's stale tasks, refreshed by renderList; recomputeAll works it off. */
+let staleTasks: SavedComp[] = [];
+
+/**
+ * Recompute every stale task in place: stored inputs → computeResults →
+ * storage, one at a time, with nothing rendered. On a failure the finished
+ * tasks stay finished (their version is bumped locally too, so a retry click
+ * picks up where this stopped).
+ */
+async function recomputeAll(): Promise<void> {
+  recomputeAllBtn.disabled = true;
+  const total = staleTasks.length;
+  let done = 0;
+  try {
+    for (const task of staleTasks) {
+      setStatus(`Recomputing ${done + 1}/${total}: ${task.name}…`);
+      const inputs = await loadInputs(task);
+      const results = await computeResults(inputs);
+      await saveResults(task, results);
+      task.analysis_version = ANALYSIS_VERSION;
+      done++;
+    }
+    setStatus(`Recomputed ${total} task${total === 1 ? '' : 's'}. All up to date.`);
+    staleAllCard.setAttribute('hidden', '');
+  } catch (err) {
+    console.error(err);
+    staleTasks = staleTasks.filter(isStale);
+    setStatus(
+      `Recompute failed after ${done} of ${total}: ${(err as Error).message}. Click again to retry the rest.`,
+    );
+  } finally {
+    recomputeAllBtn.disabled = false;
+  }
+}
+recomputeAllBtn.addEventListener('click', () => void recomputeAll());
 
 /** Re-run the analysis from the stored raw inputs and refresh the cache. */
 async function recompute(comp: SavedComp): Promise<void> {
@@ -191,37 +225,8 @@ async function recompute(comp: SavedComp): Promise<void> {
 
 // ---- entry -------------------------------------------------------------------
 
-async function init(): Promise<void> {
-  if (!isConfigured) {
-    setStatus('Accounts are not configured in this build.');
-    return;
-  }
-  // No session ever stored on this device: nothing here can load, so go sign
-  // in and come straight back (the account page honours ?next=). A stored but
-  // expired token is NOT redirected — supabase-js refreshes those, which
-  // currentUser() below waits for.
-  const here = `${window.location.pathname}${window.location.search}`;
-  const signIn = () => window.location.replace(`/account?next=${encodeURIComponent(here)}`);
-  if (!hasStoredSession()) {
-    signIn();
-    return;
-  }
-
+void gateAccountPage(setStatus, async () => {
   const id = new URLSearchParams(window.location.search).get('id');
-  try {
-    setStatus('Checking your session…');
-    if (!(await currentUser())) {
-      // The token couldn't be refreshed. Without this check the queries below
-      // would run as anon and read as "nothing saved" rather than "signed out".
-      signIn();
-      return;
-    }
-    if (id) await renderComp(id);
-    else await renderList();
-  } catch (err) {
-    console.error(err);
-    setStatus(`Error: ${(err as Error).message}`);
-  }
-}
-
-void init();
+  if (id) await renderComp(id);
+  else await renderList();
+});

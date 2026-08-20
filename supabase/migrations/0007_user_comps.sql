@@ -23,19 +23,23 @@ create table if not exists public.user_comps (
 
 alter table public.user_comps enable row level security;
 
+drop policy if exists "a user reads only their own comps" on public.user_comps;
 create policy "a user reads only their own comps"
   on public.user_comps for select to authenticated
   using (auth.uid() = user_id);
 
+drop policy if exists "a user creates only their own comps" on public.user_comps;
 create policy "a user creates only their own comps"
   on public.user_comps for insert to authenticated
   with check (auth.uid() = user_id);
 
+drop policy if exists "a user renames only their own comps" on public.user_comps;
 create policy "a user renames only their own comps"
   on public.user_comps for update to authenticated
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
 
+drop policy if exists "a user deletes only their own comps" on public.user_comps;
 create policy "a user deletes only their own comps"
   on public.user_comps for delete to authenticated
   using (auth.uid() = user_id);

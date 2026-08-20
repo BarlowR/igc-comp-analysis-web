@@ -142,7 +142,7 @@ export async function updateAnnotation(id: string, body: string, timeMs: number)
   const sb = await getSupabase();
   const { data, error } = await sb
     .from('annotations')
-    .update({ body, time_ms: Math.round(timeMs), updated_at: new Date().toISOString() })
+    .update({ body, time_ms: Math.round(timeMs) }) // updated_at: server trigger (0010)
     .eq('id', id)
     .select(COLUMNS)
     .single();

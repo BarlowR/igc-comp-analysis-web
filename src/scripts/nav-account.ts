@@ -16,8 +16,10 @@ if (isConfigured) {
     link.className = 'nav-account-link';
 
     if (session) {
-      const label = session.displayName?.trim() || session.email?.split('@')[0] || 'Account';
-      link.textContent = label;
+      // The email IS the username — same identity Supabase shows. The chip
+      // keeps just the local part so the nav stays compact; the full address
+      // sits in the tooltip and on the account page.
+      link.textContent = session.email?.split('@')[0] || 'Account';
       link.title = session.email ?? 'Account';
     } else {
       link.textContent = 'Sign in';

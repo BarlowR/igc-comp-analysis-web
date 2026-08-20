@@ -4,8 +4,16 @@
  */
 
 import { IgcFlight, type Stats } from './igc';
-import { parseXcTask, DEFAULT_TASK_KIND, type XcTask, type TaskKind } from './xctsk';
-import { buildGeom, taskDistanceM, remainingSeries, smoothAlt, tauSeries } from './timetogo';
+import { parseXcTask, startTurnpointIndex, DEFAULT_TASK_KIND, type XcTask, type TaskKind } from './xctsk';
+import {
+  buildGeom,
+  taskDistanceM,
+  remainingSeries,
+  smoothAlt,
+  tauSeries,
+  parReference,
+  type ParLine,
+} from './timetogo';
 
 /** Derive a readable fallback pilot name from an IGC filename. */
 export function nameFromFile(filename: string): string {
@@ -18,7 +26,7 @@ export function nameFromFile(filename: string): string {
       .trim() || filename
   );
 }
-import { haversine } from './math';
+import { haversine, optimizeTaskRoute } from './math';
 
 /**
  * Version of the analysis engine's OUTPUT, for cached results. A saved comp
@@ -29,8 +37,12 @@ import { haversine } from './math';
  * buildResults emits — a scoring fix, a new metric, a changed series — and
  * leave it alone for pure refactors. The archive needs no version: its results
  * are rebuilt from the IGCs on every deploy.
+ *
+ * 2: the payload gained `map.route` and `timeToGo.par` (results-codec.ts packs
+ *    it for the wire); caches from 1 lack both, so their maps draw no optimised
+ *    route and their Time Lost plots no par line until a recompute.
  */
-export const ANALYSIS_VERSION = 1;
+export const ANALYSIS_VERSION = 2;
 
 export type GradientDir = 'least_positive' | 'most_positive' | 'most_negative' | null;
 
@@ -148,7 +160,6 @@ export interface MapTurnpoint {
 
 export interface MapTrack {
   pilot: string;
-  completed: boolean;
   points: [number, number][];
   /** Epoch-ms timestamp for each point, aligned with `points`. */
   times: number[];
@@ -182,6 +193,14 @@ export interface MapData {
   utcOffsetMinutes: number | null;
   /** Epoch-ms of the SSS start gate (for the start-time marker); null if unknown. */
   startMs: number | null;
+  /**
+   * The optimised task line ([lat, lon] per turnpoint, SSS onward) the map
+   * draws — computed once at build so the client no longer re-derives it with
+   * its own copy of the algorithm. Empty on a free-flight day. Absent only in
+   * a pre-`ANALYSIS_VERSION` 2 saved-comp cache, whose map then draws no
+   * route until its owner recomputes.
+   */
+  route?: [number, number][];
   /** Day-level par constants for the Time Lost chart; null if unavailable —
    * either no usable ESS/finisher data, or a hike-and-fly task, whose part-hiked
    * legs the air-only par model doesn't describe.
@@ -191,9 +210,6 @@ export interface MapData {
    * the par ghost". */
   timeToGo: {
     M: number;
-    /** Par pace over the whole course (m/s) — a day stat; τ derives its own
-     * pace from Vg, g and M. */
-    Vcc: number;
     /** Par ground speed while gliding (m/s), measured from the par pilots. */
     Vg: number;
     /** Par ground glide ratio (course metres per metre of height), ≡ Vg/sink. */
@@ -202,10 +218,22 @@ export interface MapData {
      * the reference start. τ and tauRef ship pre-multiplied by this; it is
      * carried so the scaling is auditable. */
     pace: number;
-    hFin: number;
-    dTask: number; // optimised task distance SSS→ESS (m)
-    hRef: number; // reference start altitude (fleet-median start-gate crossing, m MSL)
     tauRef: number; // tauSeries(dTask, hRef): dTask/Vg/60 + max(0, dTask/g − (hRef−hFin))/M/60
+    /**
+     * Par reference line for the Time Lost plot, measured at build time (see
+     * timetogo.ts `parReference`). Absent only in a pre-version-2 saved cache,
+     * whose plot then draws no par line until a recompute.
+     */
+    par?: ParLine | null;
+    // Build-side diagnostics of the par fit. No client reads them, so the wire
+    // codec (results-codec.ts) strips them from the shipped JSON; they exist
+    // in-memory for the build, the tests, and a recompute's console.
+    /** Par pace over the whole course (m/s) — a day stat; τ derives its own
+     * pace from Vg, g and M. */
+    Vcc?: number;
+    hFin?: number;
+    dTask?: number; // optimised task distance SSS→ESS (m)
+    hRef?: number; // reference start altitude (fleet-median start-gate crossing, m MSL)
   } | null;
 }
 
@@ -294,6 +322,18 @@ export interface TimeLossRow {
   contextVsWinner: { avgClimbRate: number; avgAltitude: number; totalDistance: number };
 }
 
+/**
+ * The whole client payload for one analysed day: what buildResults returns, what
+ * the build-time archive endpoint serialises to `day.json`, what a saved comp
+ * stores, and what the 2D and 3D viewers render. One type for all of them.
+ */
+export interface Results {
+  table: StatsTable;
+  climb: ClimbData;
+  map: MapData;
+  timeLoss: TimeLossData;
+}
+
 /** How many of the fastest finishers the winner's row is averaged against. */
 export const TIME_LOSS_TOP_N = 10;
 
@@ -343,12 +383,7 @@ export class Competition {
    * through the same kind-dependent choices rather than each assembling their own
    * set.
    */
-  buildResults(): {
-    table: StatsTable;
-    climb: ClimbData;
-    map: MapData;
-    timeLoss: TimeLossData;
-  } {
+  buildResults(): Results {
     return {
       table: this.buildStatsTable(),
       climb: this.buildClimbData(),
@@ -535,7 +570,6 @@ export class Competition {
     const tracks: MapTrack[] = perPilot.map(({ p, rem, h, startCrossMs }) => {
       const base: MapTrack = {
         pilot: p.name,
-        completed: p.completed,
         points: p.track,
         times: p.trackTimes,
         alt: p.trackAlt,
@@ -553,13 +587,30 @@ export class Competition {
     // All pilots share the same gate time-of-day; take the first finite one.
     const startMs = this.pilots.find((p) => p.startGateMs != null)?.startGateMs ?? null;
 
+    // The drawn task line, from the SSS on (pre-start staging cylinders are
+    // dropped — an exit-start takeoff usually sits inside the SSS and would
+    // draw a degenerate stub). Computed here, once, so the map just draws it.
+    const routeTps = turnpoints.slice(startTurnpointIndex(turnpoints));
+    const route: [number, number][] = routeTps.length > 1 ? optimizeTaskRoute(routeTps) : [];
+
+    // Par reference line for the Time Lost plot, from the same L series the
+    // client draws. Gate falls back to the earliest fix, as the plot's does.
+    let parLine: ParLine | null = null;
+    if (hasTau) {
+      let tMin = Infinity;
+      for (const tr of tracks) for (const t of tr.times) if (Number.isFinite(t) && t < tMin) tMin = t;
+      const gate = startMs ?? tMin;
+      if (Number.isFinite(gate)) parLine = parReference(tracks, gate, tauRef);
+    }
+
     return {
       turnpoints,
       tracks,
       taskKind: this.kind,
       utcOffsetMinutes: this.utcOffsetMinutes,
       startMs,
-      timeToGo: hasTau ? { M, Vcc, Vg, g, pace, hFin, dTask: taskDist, hRef, tauRef } : null,
+      route,
+      timeToGo: hasTau ? { M, Vg, g, pace, tauRef, par: parLine, Vcc, hFin, dTask: taskDist, hRef } : null,
     };
   }
 

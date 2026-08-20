@@ -28,10 +28,12 @@ import {
   MAX_BODY_LENGTH,
   type Annotation,
 } from '../lib/annotations';
+import { describeError as describe, el } from '../lib/dom';
+import { parseAnnotationHash } from '../lib/links';
 import { slugifyPilot } from '../lib/pilots';
-import { isConfigured, readCachedSession } from '../lib/supabase';
+import { hasStoredSession, isConfigured, readCachedSession } from '../lib/supabase';
 import { showNotesDock } from './dock3d';
-import { altAt, formatClock, positionAt, DESELECTED_GREY, type Selection, type Timeline } from './analysis';
+import { altAt, formatClock, positionAt, DESELECTED_GREY, type Selection, type Timeline } from '../lib/replay';
 import type { MapTrack } from '../lib/competition';
 
 /** What the layer needs to know about a pilot to place and draw a note. */
@@ -64,55 +66,33 @@ export interface AnnotationLayer {
 
 const INERT: AnnotationLayer = { handleClick: () => false, onFrame: () => {} };
 
-function el<K extends keyof HTMLElementTagNameMap>(
-  tag: K,
-  className?: string,
-  text?: string,
-): HTMLElementTagNameMap[K] {
-  const node = document.createElement(tag);
-  if (className) node.className = className;
-  if (text !== undefined) node.textContent = text;
-  return node;
-}
-
-/**
- * A message worth showing a user.
- *
- * PostgrestError is a plain object, not an Error, so `String(err)` on a failed
- * query renders the literal "[object Object]" — which is what a missing table or
- * a denied policy looks like from here. Read `message` off anything that carries
- * one before falling back.
- */
-function describe(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  if (err && typeof err === 'object') {
-    const { message, details } = err as { message?: unknown; details?: unknown };
-    if (typeof message === 'string' && message) return message;
-    if (typeof details === 'string' && details) return details;
-  }
-  return String(err);
-}
 
 export function mountAnnotations(opts: AnnotationOptions): AnnotationLayer {
   const { viewer, sel, colors, timeline } = opts;
 
   // Accounts off, or nobody signed in: no notes UI at all. (gate3d lets everyone
   // through when accounts are off, so this really can be reached.)
+  //
+  // Gate on hasStoredSession, like gate3d — a token mid-refresh reads as
+  // expired to readCachedSession, and gating on that stricter test gave that
+  // user a globe with no notes dock. The fetch below goes through the SDK,
+  // which validates for real; readCachedSession is only used for the label.
   const host = document.getElementById('notes3d');
-  const session = isConfigured ? readCachedSession() : null;
-  if (!host || !session) return INERT;
+  if (!host || !isConfigured || !hasStoredSession()) return INERT;
+  const session = readCachedSession();
   showNotesDock();
 
   // The viewer is fixed to the whole viewport, so it covers the site nav — these
   // are the only route to the account page from here. Two slots: the notes dock
   // bar on a wide screen, the phone header on a narrow one. Only one is ever
   // visible, and which is the stylesheet's business, so fill both.
-  const who = session.displayName?.trim() || session.email?.split('@')[0] || 'Account';
+  // The email is the username, as in the nav chip — local part for brevity.
+  const who = session?.email?.split('@')[0] || 'Account';
   for (const slot of document.querySelectorAll('.dock-account')) {
     const link = document.createElement('a');
     link.href = '/account';
     link.textContent = who;
-    link.title = session.email ?? 'Account';
+    link.title = session?.email ?? 'Account';
     slot.replaceChildren(link);
   }
 
@@ -468,8 +448,8 @@ export function mountAnnotations(opts: AnnotationOptions): AnnotationLayer {
       // pinned, playhead at the moment (dock3d opens the panel off the same
       // hash prefix). A stale id (note deleted since it was linked) is simply
       // not found and the viewer opens as usual.
-      const linked = /^#note=(.+)$/.exec(window.location.hash);
-      const target = linked && notes.find((n) => n.id === decodeURIComponent(linked[1]));
+      const linked = parseAnnotationHash(window.location.hash);
+      const target = linked && notes.find((n) => n.id === linked);
       if (target) focus(target);
     })
     .catch((err: unknown) => {

@@ -18,14 +18,17 @@ create table if not exists public.profiles (
 
 alter table public.profiles enable row level security;
 
+drop policy if exists "profiles are readable by everyone" on public.profiles;
 create policy "profiles are readable by everyone"
   on public.profiles for select
   using (true);
 
+drop policy if exists "a user inserts only their own profile" on public.profiles;
 create policy "a user inserts only their own profile"
   on public.profiles for insert to authenticated
   with check (auth.uid() = id);
 
+drop policy if exists "a user updates only their own profile" on public.profiles;
 create policy "a user updates only their own profile"
   on public.profiles for update to authenticated
   using (auth.uid() = id)
@@ -82,14 +85,17 @@ create index if not exists pilot_claims_user_id_idx on public.pilot_claims (user
 
 alter table public.pilot_claims enable row level security;
 
+drop policy if exists "claims are readable by everyone" on public.pilot_claims;
 create policy "claims are readable by everyone"
   on public.pilot_claims for select
   using (true);
 
+drop policy if exists "a user creates only their own claims" on public.pilot_claims;
 create policy "a user creates only their own claims"
   on public.pilot_claims for insert to authenticated
   with check (auth.uid() = user_id);
 
+drop policy if exists "a user deletes only their own claims" on public.pilot_claims;
 create policy "a user deletes only their own claims"
   on public.pilot_claims for delete to authenticated
   using (auth.uid() = user_id);

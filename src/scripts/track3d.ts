@@ -2,7 +2,7 @@
  * Prototype 3D tracklog viewer (Cesium).
  *
  * Reuses the exact selection model, pilot colours and the altitude-plot time
- * scrubber from the 2D results page (src/scripts/analysis.ts) so the two views
+ * scrubber as the 2D results page (both via src/lib/replay.ts) so the two views
  * behave identically — top-20 selected by default, the rest greyed, and a
  * draggable/playable altitude slider along the bottom. The globe just replaces
  * the Leaflet map: each track is a polyline at its true altitude, and the shared
@@ -20,17 +20,19 @@ import {
   mountTimeline,
   positionAt,
   altAt,
+  trailUpTo,
+  renderStyle,
   DESELECTED_GREY,
-  type ArchivedResults,
   type Selection,
-} from './analysis';
+} from '../lib/replay';
 import { mountAnnotations, type AnnotationLayer } from './annotations3d';
 import { mountDocks } from './dock3d';
 import { makeLoading } from './loading-overlay';
-import type { MapTurnpoint, MapTrack } from '../lib/competition';
+import { $ } from '../lib/dom';
+import type { MapTurnpoint, MapTrack, Results } from '../lib/competition';
+import { decodeResults } from '../lib/results-codec';
 import { haversine } from '../lib/math';
 
-const $ = (id: string): HTMLElement => document.getElementById(id)!;
 
 /** Per-pilot Cesium handles + metadata for styling and the side panel. */
 interface PilotEnt {
@@ -74,7 +76,7 @@ async function main(): Promise<void> {
   // which is as stable as the comp itself and can't collide with archive slugs.
   let comp: string;
   let day: string;
-  let data: ArchivedResults;
+  let data: Results;
   try {
     loading.step('Loading flight data…');
     if (entry.saved) {
@@ -86,7 +88,7 @@ async function main(): Promise<void> {
       const lib = await import('../lib/saved-comps');
       const savedComp = await lib.fetchComp(id);
       if (!savedComp) throw new Error('comp not found — it may belong to a different account');
-      data = (await lib.loadResults(savedComp)) as ArchivedResults;
+      data = await lib.loadResults(savedComp);
       // The page shipped with a placeholder heading; the name only exists here.
       const title = lib.savedTitle(savedComp);
       document.title = `${title} — 3D`;
@@ -96,7 +98,7 @@ async function main(): Promise<void> {
       [, comp, day] = (entry.base ?? '').split('/').filter(Boolean);
       const res = await fetch(`${entry.base}.json`);
       if (!res.ok) throw new Error(`${res.status} fetching results`);
-      data = (await res.json()) as ArchivedResults;
+      data = decodeResults(await res.json());
     }
   } catch (err) {
     loading.fail(`Couldn't load flight data: ${(err as Error).message}`);
@@ -172,7 +174,7 @@ async function main(): Promise<void> {
       pe.trail.polyline!.material = new Cesium.ColorMaterialProperty(
         Cesium.Color.fromCssColorString(pe.color).withAlpha(isH ? 1 : 0.95),
       );
-      pe.trail.polyline!.width = new Cesium.ConstantProperty(isH ? 5 : single ? 4 : 2.5);
+      pe.trail.polyline!.width = new Cesium.ConstantProperty(renderStyle(single, isH).trail);
     }
   };
   styleSelection();
@@ -268,7 +270,7 @@ async function main(): Promise<void> {
       const pt = pe.marker.point!;
       if (selected) {
         pt.color = new Cesium.ConstantProperty(Cesium.Color.fromCssColorString(pe.color));
-        pt.pixelSize = new Cesium.ConstantProperty(isH ? 14 : single ? 12 : 9);
+        pt.pixelSize = new Cesium.ConstantProperty(renderStyle(single, isH).marker);
         pt.outlineColor = new Cesium.ConstantProperty(Cesium.Color.WHITE);
         pt.outlineWidth = new Cesium.ConstantProperty(1.5);
       } else {
@@ -697,27 +699,20 @@ function drawTracks(
 
 /**
  * The flown-so-far positions for a pilot's trail: every fix up to `t` plus the
- * interpolated point at exactly `t`. Empty before the pilot's first fix.
+ * interpolated point at exactly `t` (shared trailUpTo, projected onto the
+ * precomputed Cartesians). Empty before the pilot's first fix.
  */
 function trailPositions(pe: PilotEnt, t: number): Cesium.Cartesian3[] {
-  const { times } = pe.track;
-  const n = times.length;
-  if (n === 0 || !Number.isFinite(t) || t < times[0]) return [];
-  // Number of fixes at or before t (binary search).
-  let lo = 0;
-  let hi = n - 1;
-  while (lo < hi) {
-    const mid = (lo + hi + 1) >> 1;
-    if (times[mid] <= t) lo = mid;
-    else hi = mid - 1;
-  }
-  const out = pe.carts.slice(0, lo + 1);
-  if (t < times[n - 1]) {
-    const pos = positionAt(pe.track, t);
-    const a = altAt(pe.track, t);
-    if (pos && a != null) out.push(Cesium.Cartesian3.fromDegrees(pos[1], pos[0], a));
-  }
-  return out;
+  return trailUpTo(
+    pe.track.times,
+    t,
+    (i) => pe.carts[i],
+    (tt) => {
+      const pos = positionAt(pe.track, tt);
+      const a = altAt(pe.track, tt);
+      return pos && a != null ? Cesium.Cartesian3.fromDegrees(pos[1], pos[0], a) : null;
+    },
+  );
 }
 
 // ---- side panel: pilot list ----------------------------------------------

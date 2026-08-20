@@ -18,7 +18,7 @@
  * at rates measured from the day's par pilots (see its doc). `lostSeries`
  * detrends that into "minutes behind the par ghost".
  */
-import type { MapTurnpoint } from './competition';
+import type { MapTurnpoint, MapTrack } from './competition';
 import { startTurnpointIndex } from './xctsk';
 
 const R_EARTH = 6_371_000;
@@ -369,4 +369,68 @@ export function lostSeries(tau: number[], timesMs: number[], gateMs: number, tau
   const out = new Array<number>(tau.length);
   for (let i = 0; i < tau.length; i++) out[i] = tau[i] + (timesMs[i] - gateMs) / 60_000 - tauRefMin;
   return out;
+}
+
+/** The par reference line of the Time Lost plot: two (epoch-ms, L-minutes) points. */
+export interface ParLine {
+  a: [number, number];
+  b: [number, number];
+}
+
+/**
+ * Par reference for the Time Lost plot = the median top-10 finisher's line,
+ * from their median START point (time, L) to their median FINISH point. The
+ * top-10 straddle it, so the gap to this line reads as minutes ahead of /
+ * behind the median winner. The pace fit (competition.ts) pins both median
+ * endpoints to L ≈ 0, so this comes out horizontal; it is still measured
+ * through the actual points rather than fixed flat at 0 so any residual
+ * calibration drift shows instead of hiding. A day constant, independent of
+ * selection — computed at build time and shipped in `timeToGo.par`, so the
+ * client draws the same line the model was fitted on instead of re-deriving it.
+ */
+export function parReference(tracks: MapTrack[], gateMs: number, tauRefMin: number): ParLine | null {
+  const withTau = tracks.filter((tr) => tr.tau && tr.tau.length === tr.times.length);
+
+  // Drawable extent, matching the plot: finishers stop at ESS (completionMs);
+  // the first drawn fix is the pilot's SSS crossing, clamped to leave a line.
+  const endIdx = (tr: MapTrack): number => {
+    if (tr.completionMs == null) return tr.times.length;
+    let i = 0;
+    while (i < tr.times.length && tr.times[i] <= tr.completionMs) i++;
+    return Math.max(i, 2);
+  };
+  const startIdx = (tr: MapTrack, end: number): number => {
+    if (tr.startCrossMs == null) return 0;
+    let i = 0;
+    while (i < tr.times.length && tr.times[i] < tr.startCrossMs) i++;
+    return Math.min(i, Math.max(0, end - 2));
+  };
+
+  const medOf = (xs: number[]): number => {
+    const s = [...xs].sort((a, b) => a - b);
+    const n = s.length;
+    return n === 0 ? 0 : n % 2 ? s[(n - 1) / 2] : (s[n / 2 - 1] + s[n / 2]) / 2;
+  };
+
+  const PAR_N = 10;
+  const parFinishers = withTau
+    .filter((tr) => tr.completionMs != null)
+    .sort((a, b) => a.completionMs! - b.completionMs!)
+    .slice(0, PAR_N);
+  if (!parFinishers.length) return null;
+
+  const sT: number[] = [];
+  const sL: number[] = [];
+  const fT: number[] = [];
+  const fL: number[] = [];
+  for (const tr of parFinishers) {
+    const L = lostSeries(tr.tau!, tr.times, gateMs, tauRefMin);
+    const e = endIdx(tr);
+    const s = startIdx(tr, e);
+    sT.push(tr.times[s]);
+    sL.push(L[s]);
+    fT.push(tr.completionMs ?? tr.times[e - 1]);
+    fL.push(L[e - 1]);
+  }
+  return { a: [medOf(sT), medOf(sL)], b: [medOf(fT), medOf(fL)] };
 }

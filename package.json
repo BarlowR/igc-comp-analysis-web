@@ -21,10 +21,10 @@
     "astro": "^5.0.0",
     "cesium": "^1.143.0",
     "chart.js": "^4.4.0",
-    "leaflet": "^1.9.4",
-    "vite-plugin-cesium": "^1.2.23"
+    "leaflet": "^1.9.4"
   },
   "devDependencies": {
-    "@types/leaflet": "^1.9.21"
+    "@types/leaflet": "^1.9.21",
+    "@types/node": "^26.2.0"
   }
 }

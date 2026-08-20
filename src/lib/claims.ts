@@ -10,6 +10,7 @@
 // (see supabase/migrations/0002_shared_claims.sql). The only uniqueness left is
 // per account, so claiming twice from one account is a no-op rather than a
 // duplicate row.
+import { isUniqueViolation, requireUid } from './db';
 import { currentUser, getSupabase } from './supabase';
 
 export interface PilotClaim {
@@ -20,9 +21,6 @@ export interface PilotClaim {
   pilot_key: string;
   pilot_label: string | null;
 }
-
-/** Postgres unique_violation — this account already holds that claim. */
-const UNIQUE_VIOLATION = '23505';
 
 export async function listMyClaims(): Promise<PilotClaim[]> {
   const sb = await getSupabase();
@@ -42,6 +40,11 @@ export async function listMyClaimsForDay(comp: string, day: string): Promise<Pil
   const sb = await getSupabase();
   const user = await currentUser();
   if (!user) return [];
+
+  // .or() below takes a literal PostgREST filter string — a day containing
+  // "," or ")" would corrupt it. Day slugs are [a-z0-9-] by construction;
+  // anything else can't be an archived day, so it has no claims.
+  if (!/^[A-Za-z0-9_-]+$/.test(day)) return [];
 
   const { data, error } = await sb
     .from('pilot_claims')
@@ -66,14 +69,13 @@ export async function claimDay(
   pilotLabel: string,
 ): Promise<boolean> {
   const sb = await getSupabase();
-  const user = await currentUser();
-  if (!user) throw new Error('Not signed in.');
+  const userId = await requireUid();
 
   const { error } = await sb
     .from('pilot_claims')
-    .insert({ user_id: user.id, comp, day, pilot_key: pilotKey, pilot_label: pilotLabel });
+    .insert({ user_id: userId, comp, day, pilot_key: pilotKey, pilot_label: pilotLabel });
   if (!error) return true;
-  if (error.code === UNIQUE_VIOLATION) return false;
+  if (isUniqueViolation(error)) return false;
   throw error;
 }
 
@@ -93,16 +95,15 @@ export async function claimPilot(
   comps: string[],
 ): Promise<ClaimResult> {
   const sb = await getSupabase();
-  const user = await currentUser();
-  if (!user) throw new Error('Not signed in.');
+  const userId = await requireUid();
 
   const result: ClaimResult = { claimed: [], already: [] };
   for (const comp of comps) {
     const { error } = await sb
       .from('pilot_claims')
-      .insert({ user_id: user.id, comp, day: null, pilot_key: pilotKey, pilot_label: pilotLabel });
+      .insert({ user_id: userId, comp, day: null, pilot_key: pilotKey, pilot_label: pilotLabel });
     if (!error) result.claimed.push(comp);
-    else if (error.code === UNIQUE_VIOLATION) result.already.push(comp);
+    else if (isUniqueViolation(error)) result.already.push(comp);
     else throw error;
   }
   return result;

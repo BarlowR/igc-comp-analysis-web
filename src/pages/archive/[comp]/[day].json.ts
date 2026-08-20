@@ -7,6 +7,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import manifest from '../../../archive-manifest.json';
 import { Competition, nameFromFile } from '../../../lib/competition';
+import { encodeResults } from '../../../lib/results-codec';
 import { parseTaskKind } from '../../../lib/xctsk';
 
 interface Entry {
@@ -46,6 +47,8 @@ export const GET: APIRoute = ({ props }) => {
   // values as "no value", so this round-trips safely. Which metrics and plots are
   // in here depends on the task kind — buildResults makes those choices, so the
   // upload page's live analysis gets the identical set (see runAnalysis).
-  const body = JSON.stringify(comp.buildResults());
+  // encodeResults packs the tracks for the wire (results-codec.ts); the client
+  // decodes back to the same in-memory shape.
+  const body = JSON.stringify(encodeResults(comp.buildResults()));
   return new Response(body, { headers: { 'content-type': 'application/json' } });
 };

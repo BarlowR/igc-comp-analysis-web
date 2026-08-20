@@ -19,10 +19,19 @@ import {
   updateNote,
   type NotebookNote,
 } from '../lib/notebooks';
-import { currentUser, hasStoredSession, isConfigured } from '../lib/supabase';
+import { gateAccountPage } from '../lib/account-gate';
+import { $, el } from '../lib/dom';
+import {
+  annotationUrl,
+  archiveCompUrl,
+  archiveTaskUrl,
+  notebookUrl,
+  parseNoteAnchor,
+  savedCompUrl,
+  savedTaskUrl,
+} from '../lib/links';
 import { stashBackNote } from './back-chip';
 
-const $ = (id: string) => document.getElementById(id)!;
 const statusEl = $('status');
 const titleEl = $('nb-title');
 const listCard = $('nb-list-card');
@@ -32,17 +41,6 @@ const nameInput = $('nb-name') as HTMLInputElement;
 const notesSection = $('nb-notes');
 const noteListEl = $('nb-note-list');
 const addBtn = $('nb-add') as HTMLButtonElement;
-
-function el<K extends keyof HTMLElementTagNameMap>(
-  tag: K,
-  className?: string,
-  text?: string,
-): HTMLElementTagNameMap[K] {
-  const node = document.createElement(tag);
-  if (className) node.className = className;
-  if (text !== undefined) node.textContent = text;
-  return node;
-}
 
 function setStatus(message: string): void {
   statusEl.textContent = message;
@@ -65,7 +63,7 @@ async function renderList(): Promise<void> {
     const card = el('div', 'claim-card');
     const head = el('div', 'claim-card-head');
     const link = el('a', 'claim-day-link', nb.name) as HTMLAnchorElement;
-    link.href = `/notebooks?id=${nb.id}`;
+    link.href = notebookUrl(nb.id);
     head.appendChild(link);
     head.appendChild(el('span', 'claim-day-date', new Date(nb.created_at).toLocaleDateString()));
 
@@ -96,7 +94,7 @@ createForm.addEventListener('submit', async (event) => {
   setStatus('Creating…');
   try {
     const nb = await createNotebook(name);
-    window.location.href = `/notebooks?id=${nb.id}`;
+    window.location.href = notebookUrl(nb.id);
   } catch (err) {
     setStatus((err as Error).message);
   }
@@ -128,11 +126,9 @@ async function openNotebook(id: string): Promise<void> {
   for (const note of notes) noteListEl.appendChild(noteCard(note));
 
   // Arriving on the back chip's link: #note-<id> scrolls to the note you left.
-  const linked = /^#note-(.+)$/.exec(window.location.hash);
+  const linked = parseNoteAnchor(window.location.hash);
   if (linked) {
-    document
-      .getElementById(`note-${linked[1]}`)
-      ?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    document.getElementById(`note-${linked}`)?.scrollIntoView({ block: 'start', behavior: 'smooth' });
   }
 }
 
@@ -293,10 +289,7 @@ function loadTargets(): Promise<LinkNode[]> {
       for (const note of await listMyAnnotations()) {
         const pilot = note.pilot_label ?? note.pilot_key;
         const excerpt = note.body.length > 40 ? `${note.body.slice(0, 40)}…` : note.body;
-        const url =
-          note.comp === 'saved'
-            ? `/saved/3d?id=${note.day}#note=${note.id}`
-            : `/archive/${note.comp}/${note.day}/3d#note=${note.id}`;
+        const url = annotationUrl(note.comp, note.day, note.id);
         const key = `${note.comp}\n${note.day}`;
         const pilots = byDay.get(key) ?? new Map<string, LinkNode[]>();
         byDay.set(key, pilots);
@@ -324,14 +317,19 @@ function loadTargets(): Promise<LinkNode[]> {
       for (const day of roster.days) {
         let comp = comps.get(day.comp);
         if (!comp) {
-          comp = { group: 'Archive comps', label: day.compLabel, url: `/#c/${day.comp}`, children: [] };
+          comp = {
+            group: 'Archive comps',
+            label: day.compLabel,
+            url: archiveCompUrl(day.comp),
+            children: [],
+          };
           comps.set(day.comp, comp);
           out.push(comp);
         }
         comp.children!.push({
           label: day.dayLabel,
           insert: `${day.compLabel} — ${day.dayLabel}`,
-          url: `/archive/${day.comp}/${day.day}`,
+          url: archiveTaskUrl(day.comp, day.day),
           children: pilotFolders(day.comp, day.day),
         });
       }
@@ -344,7 +342,7 @@ function loadTargets(): Promise<LinkNode[]> {
       const tasks = await lib.listMyComps();
       const taskNode = (task: import('../lib/saved-comps').SavedComp): LinkNode => ({
         label: lib.savedTitle(task),
-        url: `/saved?id=${task.id}`,
+        url: savedTaskUrl(task.id),
         children: pilotFolders('saved', task.id),
       });
       for (const comp of await lib.listMyUserComps()) {
@@ -352,7 +350,7 @@ function loadTargets(): Promise<LinkNode[]> {
         out.push({
           group: 'My comps',
           label: comp.name,
-          url: `/saved#c/${comp.id}`,
+          url: savedCompUrl(comp.id),
           children: kids.length ? kids : undefined,
         });
       }
@@ -595,31 +593,8 @@ function caretPosition(area: HTMLTextAreaElement, offset: number): { left: numbe
 
 // ---- entry ------------------------------------------------------------------
 
-async function init(): Promise<void> {
-  if (!isConfigured) {
-    setStatus('Accounts are not configured in this build.');
-    return;
-  }
-  const here = `${window.location.pathname}${window.location.search}`;
-  const signIn = () => window.location.replace(`/account?next=${encodeURIComponent(here)}`);
-  if (!hasStoredSession()) {
-    signIn();
-    return;
-  }
-
+void gateAccountPage(setStatus, async () => {
   const id = new URLSearchParams(window.location.search).get('id');
-  try {
-    setStatus('Checking your session…');
-    if (!(await currentUser())) {
-      signIn();
-      return;
-    }
-    if (id) await openNotebook(id);
-    else await renderList();
-  } catch (err) {
-    console.error(err);
-    setStatus(`Error: ${(err as Error).message}`);
-  }
-}
-
-void init();
+  if (id) await openNotebook(id);
+  else await renderList();
+});

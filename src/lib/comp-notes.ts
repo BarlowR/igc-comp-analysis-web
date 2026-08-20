@@ -58,7 +58,7 @@ export async function saveCompNote(comp: string, body: string): Promise<CompNote
   const { data, error } = await sb
     .from('comp_notes')
     .upsert(
-      { user_id: user.id, comp, body: text, updated_at: new Date().toISOString() },
+      { user_id: user.id, comp, body: text }, // updated_at: server trigger (0010)
       { onConflict: 'user_id,comp' },
     )
     .select('comp, body, updated_at')

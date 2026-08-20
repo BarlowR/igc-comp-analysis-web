@@ -35,19 +35,23 @@ alter table public.annotations enable row level security;
 -- Private, unlike profiles and pilot_claims: an annotation is readable only by
 -- the account that wrote it. All four policies are scoped to the owner, so there
 -- is no path from the anon key to anyone else's notes.
+drop policy if exists "a user reads only their own annotations" on public.annotations;
 create policy "a user reads only their own annotations"
   on public.annotations for select to authenticated
   using (auth.uid() = user_id);
 
+drop policy if exists "a user creates only their own annotations" on public.annotations;
 create policy "a user creates only their own annotations"
   on public.annotations for insert to authenticated
   with check (auth.uid() = user_id);
 
+drop policy if exists "a user updates only their own annotations" on public.annotations;
 create policy "a user updates only their own annotations"
   on public.annotations for update to authenticated
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
 
+drop policy if exists "a user deletes only their own annotations" on public.annotations;
 create policy "a user deletes only their own annotations"
   on public.annotations for delete to authenticated
   using (auth.uid() = user_id);

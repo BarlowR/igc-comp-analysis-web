@@ -40,19 +40,23 @@ alter table public.comp_notes enable row level security;
 -- Private, like annotations and unlike profiles/pilot_claims: readable only by
 -- the account that wrote it. All four policies are scoped to the owner, so there
 -- is no path from the anon key to anyone else's notes.
+drop policy if exists "a user reads only their own comp notes" on public.comp_notes;
 create policy "a user reads only their own comp notes"
   on public.comp_notes for select to authenticated
   using (auth.uid() = user_id);
 
+drop policy if exists "a user creates only their own comp notes" on public.comp_notes;
 create policy "a user creates only their own comp notes"
   on public.comp_notes for insert to authenticated
   with check (auth.uid() = user_id);
 
+drop policy if exists "a user updates only their own comp notes" on public.comp_notes;
 create policy "a user updates only their own comp notes"
   on public.comp_notes for update to authenticated
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
 
+drop policy if exists "a user deletes only their own comp notes" on public.comp_notes;
 create policy "a user deletes only their own comp notes"
   on public.comp_notes for delete to authenticated
   using (auth.uid() = user_id);

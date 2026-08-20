@@ -14,6 +14,14 @@ import Base from '../layouts/Base.astro';
   </header>
 
   <main>
+    <!-- Shown over the list when any saved task predates the current engine. -->
+    <section class="card save-card" id="stale-all-card" hidden>
+      <p class="field-hint">
+        The analysis has improved since some of these were saved.
+        <button id="recompute-all-btn" type="button" class="account-btn small">Recompute all</button>
+      </p>
+    </section>
+
     <section class="card account-card" id="saved-list-card" hidden>
       <div id="saved-list" class="claims-list"></div>
     </section>
