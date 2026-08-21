@@ -3,9 +3,11 @@
  *
  * The air is drawn as a translucent cloud of instanced spheres, one per fix in
  * the trailing three minutes that sat near the anchor: colour and opacity ramp
- * with climb strength (transparent yellow at V_FLOOR → opaque red at VMAX),
+ * with climb strength (transparent yellow at V_FLOOR → opaque red at VMAX,
+ * on into purple for the top decile beyond VMAX),
  * size fades with age, sink below V_FLOOR is not drawn. Other pilots are grey dots with short tails; the
- * pinned pilot wears their globe colour, and the best climber nearby is teal.
+ * pinned pilot wears their globe colour, and the best climber nearby is teal —
+ * both with a black rim and a black trail so they read against the cloud.
  *
  * Lives in the pane beside the globe on the 3D replay page (Viewer3d.astro,
  * wired by track3d.ts mountCloudPane). This module is the lazy chunk — it is
@@ -17,6 +19,9 @@
  * the pinned pilot; it draws, it never drives.
  */
 import * as THREE from 'three';
+import { Line2 } from 'three/addons/lines/Line2.js';
+import { LineGeometry } from 'three/addons/lines/LineGeometry.js';
+import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import {
   buildCloudModel,
   frameAt,
@@ -59,14 +64,33 @@ export interface ThermalCloud {
 }
 
 // ---- encodings (spec) -------------------------------------------------------
-const SPHERE_R = 13;
-const SPHERE_DETAIL = 2;
+// ---- cloud dot tuning: paste the Apply block from the playground here ------
+// (analysis/thermal-dots-proto.html — its Apply button prints this block)
+const SPHERE_R = 25;
+const SPHERE_DETAIL = 1;
+const FRESNEL_LO = 0.20; // alpha *= smoothstep(lo, hi, facing)
+const FRESNEL_HI = 1.4;
+const ALPHA_GAIN = 1.5; // alpha = gain * t^gamma
+const ALPHA_GAMMA = 1.2;
+const AGE_FADE = 0.5; // size shrink over the 3 min window
+const AGE_ALPHA_FADE = 0.85; // opacity fade over the same window
+const DEPTH_WRITE = false;
+const ALPHA_TO_COVERAGE = false; // opaque + MSAA; overrides DEPTH_WRITE
+const INTERP_SUB = 1; // spheres per 5 s sample gap; 1 = off
+// ---- end tuning -------------------------------------------------------------
+/** Number → GLSL float literal (the shader template needs the decimal point). */
+const glf = (n: number): string => n.toFixed(4);
 const V_FLOOR = -1; // m/s; the ramp's transparent end — air sinking faster is not drawn
 const COL_LO = 0xf2c230;
 const COL_HI = 0xe24b4a;
+const COL_XHI = 0x9038a3; // red keeps going into purple past vmax (the P90 clamp)
+const XHI_SPAN = 0.5; // fully purple at vmax + span * (vmax - V_FLOOR)
 const GREY = 0x8a847a;
 const ACCENT = 0x705a90;
 const HILITE = 0x1f8a9e; // teal: reads against both the yellow→red ramp and the grey
+const OUTLINE = 0x000000; // rim around the anchor/best dots, and their trails
+const TRAIL_W = 3; // px at the pilot; the anchor/best trails are fat lines, the grey tails stay 1 px
+const TAPER_S = 30; // s of trail age over which TRAIL_W thins back to 1 px
 const TAIL_PTS = TAIL_MS / STEP_MS + 1;
 const TRAIL_PTS = ANCHOR_TRAIL_MS / STEP_MS + 2;
 
@@ -82,14 +106,16 @@ const CSS = `
 .tc-stage.tc-loading canvas{background:linear-gradient(110deg,var(--panel-2,#ece3cf) 40%,var(--panel,#f5efe1) 50%,var(--panel-2,#ece3cf) 60%);background-size:200% 100%;animation:tc-sheen 1.1s linear infinite}
 @keyframes tc-sheen{to{background-position:-200% 0}}
 .tc-spinner{position:absolute;inset:0;display:grid;place-items:center;color:var(--muted,#6b625e);font-size:.8rem;pointer-events:none}
-.tc-overlay{position:absolute;top:.5rem;left:.6rem;display:flex;flex-direction:column;gap:.4rem;pointer-events:none;max-width:220px}
+.tc-overlay{position:absolute;top:.5rem;left:.6rem;display:flex;flex-direction:column;gap:.4rem;pointer-events:none;width:220px}
 .tc-stats,.tc-legend{background:rgba(245,239,225,.92);border:1px solid var(--border,rgba(20,12,12,.35));border-radius:8px;padding:.4rem .6rem;font-size:.74rem;line-height:1.5}
 .tc-stats b{font-weight:500;font-variant-numeric:tabular-nums}
 .tc-stats .lbl{color:var(--muted,#6b625e)}
+.tc-stats>div{min-width:0}
+.tc-stats .who{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tc-legend{display:flex;flex-direction:column;gap:.1rem;color:var(--muted,#6b625e)}
 .tc-legend b{font-weight:400;color:var(--text,#140c0c)}
 .tc-scale{display:flex;align-items:center;gap:.4rem}
-.tc-scale .bar{flex:1;height:9px;min-width:70px;border-radius:5px;border:1px solid var(--border,rgba(20,12,12,.35));background:linear-gradient(90deg,rgba(242,194,48,0),#F2C230 55%,#E24B4A)}
+.tc-scale .bar{flex:1;height:9px;min-width:70px;border-radius:5px;border:1px solid var(--border,rgba(20,12,12,.35));background:linear-gradient(90deg,rgba(242,194,48,0),#F2C230 48%,#E24B4A 84%,#9038A3)}
 .tc-chip{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:.4rem;vertical-align:-1px}
 .tc-tip{position:absolute;pointer-events:none;background:var(--border-strong,#140c0c);color:#f5efe1;font-size:.74rem;line-height:1.45;padding:.35rem .5rem;border-radius:7px;max-width:220px;display:none;z-index:2}
 .tc-tip b{font-weight:500}
@@ -100,7 +126,7 @@ const CSS = `
 @container (max-width: 420px){
   .tc-stage{flex:none;height:min(52%,300px)}
   .tc-below{overflow-y:auto;padding:0 .6rem .5rem}
-  .tc-overlay{position:static;max-width:none;margin-top:.4rem}
+  .tc-overlay{position:static;width:auto;margin-top:.4rem}
   .tc-stats{display:grid;grid-template-columns:1fr 1fr;gap:0 .8rem}
 }
 /* Phones: the canvas is the whole pane; the stats and legend are dropped rather than squeezed. */
@@ -162,11 +188,15 @@ export function mountThermalCloud(container: HTMLElement, opts: ThermalCloudOpti
     d.append(el('span', 'lbl', label), ' ', ...nodes);
     return d;
   };
+  // The name row gets .who: nowrap + ellipsis, so a long pilot name can't
+  // resize the fixed-width box.
+  const whoRow = statRow('Best nearby', sWho);
+  whoRow.classList.add('who');
   stats.append(
     statRow('Pilot now', sYou, ' m/s · ', sAlt, ' m'),
     statRow(`Best, ${STAT_MS / 1000} s`, sBest, ' m/s'),
     statRow(`Avg, ${STAT_MS / 1000} s`, sMed, ' m/s'),
-    statRow('Best nearby', sWho),
+    whoRow,
   );
   const legend = el('div', 'tc-legend');
   const scale = el('div', 'tc-scale');
@@ -179,6 +209,7 @@ export function mountThermalCloud(container: HTMLElement, opts: ThermalCloudOpti
   const bestRow = el('span');
   const bestChip = el('span', 'tc-chip');
   bestChip.style.background = '#1F8A9E';
+  bestChip.style.border = '2px solid #000';
   bestRow.append(bestChip, 'best climb nearby');
   legend.append(el('b', undefined, 'Lift'), scale, greyRow, bestRow, el('span', undefined, `sink below ${V_FLOOR} m/s not drawn`));
   overlay.append(stats, legend);
@@ -252,13 +283,18 @@ export function mountThermalCloud(container: HTMLElement, opts: ThermalCloudOpti
 
   // Cloud: instanced icosahedra, per-instance colour + alpha, fresnel edge fade.
   // Capacity = every sample that could ever be in a 3 min window: one per
-  // pilot per step, plus one.
-  const MAXI = M.tracks.length * (TRAIL_MS / STEP_MS + 1);
+  // pilot per step, plus one — times the interpolation factor.
+  const MAXI = M.tracks.length * (TRAIL_MS / STEP_MS + 1) * INTERP_SUB;
   const sphereGeo = new THREE.IcosahedronGeometry(SPHERE_R, SPHERE_DETAIL);
   const alphaAttr = new THREE.InstancedBufferAttribute(new Float32Array(MAXI), 1);
   alphaAttr.setUsage(THREE.DynamicDrawUsage);
   sphereGeo.setAttribute('instanceAlpha', alphaAttr);
-  const fieldMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, depthWrite: false });
+  const fieldMat = new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    transparent: !ALPHA_TO_COVERAGE,
+    depthWrite: ALPHA_TO_COVERAGE || DEPTH_WRITE,
+    alphaToCoverage: ALPHA_TO_COVERAGE,
+  });
   fieldMat.onBeforeCompile = (sh) => {
     sh.vertexShader =
       'attribute float instanceAlpha;\nvarying float vA;\nvarying vec3 vN;\nvarying vec3 vVp;\n' +
@@ -269,7 +305,8 @@ export function mountThermalCloud(container: HTMLElement, opts: ThermalCloudOpti
       'varying float vA;\nvarying vec3 vN;\nvarying vec3 vVp;\n' +
       sh.fragmentShader.replace(
         '#include <color_fragment>',
-        '#include <color_fragment>\nfloat facing = clamp(dot(normalize(vN), normalize(-vVp)), 0.0, 1.0);\ndiffuseColor.a *= vA * smoothstep(0.02, 0.8, facing);',
+        '#include <color_fragment>\nfloat facing = clamp(dot(normalize(vN), normalize(-vVp)), 0.0, 1.0);\n' +
+          `diffuseColor.a *= ${glf(ALPHA_GAIN)} * pow(vA, ${glf(ALPHA_GAMMA)}) * smoothstep(${glf(FRESNEL_LO)}, ${glf(FRESNEL_HI)}, facing);`,
       );
   };
   const field = new THREE.InstancedMesh(sphereGeo, fieldMat, MAXI);
@@ -280,6 +317,7 @@ export function mountThermalCloud(container: HTMLElement, opts: ThermalCloudOpti
   scene.add(field);
   const YEL = new THREE.Color(COL_LO);
   const RED = new THREE.Color(COL_HI);
+  const PUR = new THREE.Color(COL_XHI);
   const C = new THREE.Color();
   /** Hover metadata per visible instance. */
   let airMeta: { name: string; mine: boolean; v: number; alt: number; ageS: number }[] = [];
@@ -315,11 +353,24 @@ export function mountThermalCloud(container: HTMLElement, opts: ThermalCloudOpti
     scene.add(l);
     tails.push(l);
   }
-  const trailLine = (color: number): THREE.Line => {
-    const g = new THREE.BufferGeometry().setFromPoints(Array.from({ length: TRAIL_PTS }, () => new THREE.Vector3()));
-    const l = new THREE.Line(g, new THREE.LineBasicMaterial({ color, transparent: true, depthTest: false }));
+  // Fat lines (Line2): plain THREE.Line is 1 px everywhere WebGL matters, so
+  // the two highlighted trails get the screen-space-width addon instead.
+  // resolution is fed CSS pixels in onResize, making TRAIL_W a CSS-px width.
+  const trailMat = new LineMaterial({ color: OUTLINE, linewidth: TRAIL_W, transparent: true, depthTest: false });
+  // Taper: LineMaterial's width is a uniform, so scale it per segment (each
+  // segment is one instance) — 1 at the pilot down to 1px/TRAIL_W past TAPER_S.
+  trailMat.onBeforeCompile = (sh) => {
+    sh.vertexShader =
+      'attribute float instanceWidth;\n' + sh.vertexShader.replace('offset *= linewidth;', 'offset *= linewidth * instanceWidth;');
+  };
+  const trailLine = (): Line2 => {
+    const g = new LineGeometry();
+    g.setPositions([0, 0, 0, 0, 0, 0]);
+    g.setAttribute('instanceWidth', new THREE.InstancedBufferAttribute(new Float32Array([1]), 1));
+    const l = new Line2(g, trailMat);
     l.renderOrder = 11;
     l.frustumCulled = false;
+    l.visible = false;
     scene.add(l);
     return l;
   };
@@ -327,20 +378,27 @@ export function mountThermalCloud(container: HTMLElement, opts: ThermalCloudOpti
     const m = new THREE.Mesh(new THREE.IcosahedronGeometry(r, 1), new THREE.MeshBasicMaterial({ color, transparent: true, depthTest: false }));
     m.renderOrder = 11;
     m.frustumCulled = false;
+    // Black rim: a slightly larger back-facing shell, drawn just before the
+    // dot (renderOrder 10.5 < 11) so the dot covers all but the edge.
+    const rim = new THREE.Mesh(
+      new THREE.IcosahedronGeometry(r * 1.25, 1),
+      new THREE.MeshBasicMaterial({ color: OUTLINE, side: THREE.BackSide, transparent: true, depthTest: false }),
+    );
+    rim.renderOrder = 10.5;
+    rim.frustumCulled = false;
+    m.add(rim);
     scene.add(m);
     return m;
   };
-  const meTrail = trailLine(ACCENT);
+  const meTrail = trailLine();
   const meDot = bigDot(ACCENT, 16);
   const setAnchorColor = (name: string | null): void => {
     const css = name ? opts.colors.get(name) : undefined;
-    const c = new THREE.Color(css ?? ACCENT);
-    (meTrail.material as THREE.LineBasicMaterial).color.copy(c);
-    (meDot.material as THREE.MeshBasicMaterial).color.copy(c);
+    (meDot.material as THREE.MeshBasicMaterial).color.copy(new THREE.Color(css ?? ACCENT));
   };
   setAnchorColor(anchorName);
   // The best climber nearby: a teal dot + 75 s tail in place of their grey one.
-  const bestTrail = trailLine(HILITE);
+  const bestTrail = trailLine();
   const bestDot = bigDot(HILITE, 13);
   bestTrail.visible = false;
   bestDot.visible = false;
@@ -491,6 +549,35 @@ export function mountThermalCloud(container: HTMLElement, opts: ThermalCloudOpti
     pos.needsUpdate = true;
     line.visible = true;
   };
+  // Same job for the two fat trails; LineGeometry takes a flat variable-length
+  // array, so no fixed-capacity padding is needed.
+  const setTrail = (line: Line2, pts: PilotNow['tail']): void => {
+    const use = pts.slice(Math.max(0, pts.length - TRAIL_PTS));
+    if (use.length < 2) {
+      line.visible = false;
+      return;
+    }
+    const arr = new Float32Array(use.length * 3);
+    const w = new THREE.Vector3();
+    use.forEach((p, k) => {
+      W(p.x, p.alt, p.y, w);
+      arr[k * 3] = w.x;
+      arr[k * 3 + 1] = w.y;
+      arr[k * 3 + 2] = w.z;
+    });
+    line.geometry.setPositions(arr);
+    // Per-segment width: tail points sit on the STEP_MS grid, newest last, so
+    // a segment's age is its distance from the end.
+    const segs = use.length - 1;
+    const widths = new Float32Array(segs);
+    for (let s = 0; s < segs; s++) {
+      const ageS = (segs - 1 - s) * (STEP_MS / 1000);
+      const px = 1 + (TRAIL_W - 1) * Math.max(0, 1 - ageS / TAPER_S);
+      widths[s] = px / TRAIL_W;
+    }
+    line.geometry.setAttribute('instanceWidth', new THREE.InstancedBufferAttribute(widths, 1));
+    line.visible = true;
+  };
 
   let dirty = true;
   const update = (): void => {
@@ -513,19 +600,42 @@ export function mountThermalCloud(container: HTMLElement, opts: ThermalCloudOpti
     // Cloud
     let i = 0;
     const metaNext: typeof airMeta = [];
-    for (const s of f.air) {
-      if (s.v <= V_FLOOR || i >= MAXI) continue;
-      const sc = 1 - 0.55 * (s.ageS / (TRAIL_MS / 1000));
-      W(s.x, s.alt, s.y, P);
+    const windowS = TRAIL_MS / 1000;
+    const emit = (pilot: string, x: number, y: number, alt: number, v: number, ageS: number): void => {
+      if (v <= V_FLOOR || i >= MAXI) return;
+      const sc = 1 - AGE_FADE * (ageS / windowS);
+      W(x, alt, y, P);
       S.set(sc, sc, sc);
       Mx.compose(P, Q, S);
       field.setMatrixAt(i, Mx);
-      const t = Math.min(1, (s.v - V_FLOOR) / (M.vmax - V_FLOOR));
-      alphaAttr.setX(i, t);
+      const t = Math.min(1, (v - V_FLOOR) / (M.vmax - V_FLOOR));
+      alphaAttr.setX(i, t * (1 - AGE_ALPHA_FADE * (ageS / windowS)));
       C.copy(YEL).lerp(RED, t);
+      const over = Math.min(1, (v - M.vmax) / (XHI_SPAN * (M.vmax - V_FLOOR)));
+      if (over > 0) C.lerp(PUR, over);
       field.setColorAt(i, C);
-      metaNext.push({ name: s.pilot, mine: s.pilot === anchorName, v: s.v, alt: s.alt, ageS: s.ageS });
+      metaNext.push({ name: pilot, mine: pilot === anchorName, v, alt, ageS });
       i++;
+    };
+    // f.air is ordered per pilot, newest first; a same-pilot pair one grid
+    // step apart gets INTERP_SUB - 1 lerped spheres between them.
+    let prev: (typeof f.air)[number] | null = null;
+    for (const s of f.air) {
+      if (INTERP_SUB > 1 && prev && prev.pilot === s.pilot && s.ageS - prev.ageS <= STEP_MS / 1000 + 0.01) {
+        for (let k = 1; k < INTERP_SUB; k++) {
+          const fr = k / INTERP_SUB;
+          emit(
+            s.pilot,
+            prev.x + (s.x - prev.x) * fr,
+            prev.y + (s.y - prev.y) * fr,
+            prev.alt + (s.alt - prev.alt) * fr,
+            prev.v + (s.v - prev.v) * fr,
+            prev.ageS + (s.ageS - prev.ageS) * fr,
+          );
+        }
+      }
+      emit(s.pilot, s.x, s.y, s.alt, s.v, s.ageS);
+      prev = s;
     }
     airMeta = metaNext;
     field.count = i;
@@ -558,7 +668,7 @@ export function mountThermalCloud(container: HTMLElement, opts: ThermalCloudOpti
     pilotsNow.instanceMatrix.needsUpdate = true;
 
     if (bestP) {
-      setLine(bestTrail, bestP.tail, true);
+      setTrail(bestTrail, bestP.tail);
       W(bestP.x, bestP.alt, bestP.y, bestDot.position);
       bestDot.visible = true;
     } else {
@@ -568,7 +678,7 @@ export function mountThermalCloud(container: HTMLElement, opts: ThermalCloudOpti
 
     // Anchor
     if (f.anchor) {
-      setLine(meTrail, f.anchor.tail, false);
+      setTrail(meTrail, f.anchor.tail);
       W(f.anchor.x, f.anchor.alt, f.anchor.y, meDot.position);
       meDot.visible = true;
     } else {
@@ -630,6 +740,7 @@ export function mountThermalCloud(container: HTMLElement, opts: ThermalCloudOpti
     if (!w || !h) return;
     renderer.setSize(w, h, false);
     renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+    trailMat.resolution.set(w, h);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
     dirty = true;
@@ -665,10 +776,8 @@ export function mountThermalCloud(container: HTMLElement, opts: ThermalCloudOpti
     dotMat.dispose();
     tailMat.dispose();
     for (const t of tails) t.geometry.dispose();
-    for (const l of [meTrail, bestTrail]) {
-      l.geometry.dispose();
-      (l.material as THREE.Material).dispose();
-    }
+    for (const l of [meTrail, bestTrail]) l.geometry.dispose();
+    trailMat.dispose();
     for (const d of [meDot, bestDot]) {
       d.geometry.dispose();
       (d.material as THREE.Material).dispose();

@@ -1,0 +1,539 @@
+<!doctype html>
+<!--
+  Thermal-dot rendering playground.
+
+  Ramp: transparent yellow at V_FLOOR → red at vmax → purple past vmax (COL_XHI).
+
+  A standalone copy of the Thermal Cloud sphere rendering
+  (src/scripts/thermal-cloud.ts) over synthetic thermalling pilots, so blending
+  experiments don't need the app running. The "App baseline" button restores
+  exactly what the widget ships today; everything else is a knob on top:
+
+    radius / detail          sphere geometry
+    edge fade lo/hi          the fresnel smoothstep (baseline 0.02 / 0.8)
+    alpha gain / gamma       alpha = gain * t^gamma  (baseline 1 / 1)
+    age size fade            sc = 1 - fade * age/180 (baseline 0.55)
+    age alpha fade           alpha *= 1 - fade * age/180 (baseline 0: off)
+    depth write              on/off (baseline off)
+    alpha to coverage        opaque + MSAA: depth writes AND faded rims
+    interpolate              lerp extra spheres into the 5 s gaps (continuous plumes)
+
+  "Apply to app" prints the tuning block to paste over the matching block in
+  src/scripts/thermal-cloud.ts. Stand-ins for the pilot dots and trails (rimmed
+  anchor + best climber, grey others, black tapered fat trails) can be toggled
+  under Scene to judge the cloud against them.
+    background               the pane cream vs dark (additive needs dark)
+
+  Open directly in a browser; if modules refuse to load from file://, serve the
+  repo root:  python3 -m http.server 8000  →  http://localhost:8000/analysis/thermal-dots-proto.html
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Thermal dot playground</title>
+<style>
+  :root { color-scheme: light dark; }
+  html, body { margin: 0; height: 100%; }
+  body { display: flex; font: 13px/1.45 system-ui, sans-serif; background: #ece3cf; }
+  #stage { flex: 1; min-width: 0; }
+  #stage canvas { display: block; width: 100%; height: 100%; }
+  #panel {
+    width: 290px; flex: none; box-sizing: border-box; overflow-y: auto; padding: 12px 14px 20px;
+    background: rgba(20, 16, 12, .92); color: #f5efe1;
+  }
+  #panel h1 { font-size: 14px; font-weight: 600; margin: 0 0 10px; }
+  #panel fieldset { border: 1px solid rgba(245,239,225,.25); border-radius: 8px; margin: 0 0 10px; padding: 6px 10px 8px; }
+  #panel legend { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; opacity: .7; padding: 0 4px; }
+  .row { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
+  .row label { flex: none; width: 92px; }
+  .row input[type=range] { flex: 1; min-width: 0; }
+  .row output { flex: none; width: 42px; text-align: right; font-variant-numeric: tabular-nums; }
+  .row select { flex: 1; }
+  button { margin: 2px 6px 2px 0; padding: 4px 10px; border-radius: 6px; border: 1px solid rgba(245,239,225,.4);
+           background: transparent; color: inherit; cursor: pointer; }
+  button:hover { background: rgba(245,239,225,.12); }
+  #applyModal { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: center; justify-content: center; z-index: 10; }
+  #applyModal[hidden] { display: none; }
+  #applyModal .sheet { background: #201b14; color: #f5efe1; border-radius: 10px; padding: 14px 16px; width: min(640px, 90vw); }
+  #applyModal p { margin: 0 0 8px; }
+  #applyModal textarea { width: 100%; box-sizing: border-box; font: 12px/1.4 ui-monospace, monospace; background: #14100b;
+                         color: #f5efe1; border: 1px solid rgba(245,239,225,.25); border-radius: 6px; padding: 8px; resize: vertical; }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<div id="panel">
+  <h1>Thermal dot playground</h1>
+  <div id="controls"></div>
+  <button id="baseline">App baseline</button>
+  <button id="reseed">Reseed pilots</button>
+  <button id="apply">Apply to app…</button>
+</div>
+<div id="applyModal" hidden>
+  <div class="sheet">
+    <p>Paste over the tuning block in <code>src/scripts/thermal-cloud.ts</code>:</p>
+    <textarea readonly rows="16" spellcheck="false"></textarea>
+    <div>
+      <button id="applyCopy">Copy</button>
+      <button id="applyClose">Close</button>
+    </div>
+  </div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { Line2 } from 'three/addons/lines/Line2.js';
+import { LineGeometry } from 'three/addons/lines/LineGeometry.js';
+import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
+
+// ---- constants mirrored from the app ---------------------------------------
+const STEP_S = 5;          // sample grid (STEP_MS)
+const TRAIL_S = 180;       // trailing window (TRAIL_MS)
+const V_FLOOR = -1;        // transparent end of the ramp
+const COL_LO = 0xf2c230;
+const COL_HI = 0xe24b4a;
+const COL_XHI = 0x9038a3; // red keeps going into purple past vmax (the P90 clamp)
+const XHI_SPAN = 0.5;     // fully purple at vmax + span * (vmax - V_FLOOR)
+// Pilot stand-ins, mirrored from the app.
+const GREY = 0x8a847a;
+const ACCENT = 0x705a90;  // anchor fallback colour
+const HILITE = 0x1f8a9e;  // best climber teal
+const TRAIL_W = 3;        // px at the pilot
+const TAPER_S = 30;       // s over which the trail thins back to 1 px
+const TAIL_S = 75;        // grey/best tail window
+const ANCHOR_TRAIL_S = 120;
+const BG_LIGHT = 0xece3cf; // the pane's cream
+const BG_DARK = 0x17140f;
+const INTERP_SUB = 4;      // sub-steps per 5 s gap when interpolation is on
+
+// ---- tweakable state (App baseline values) ---------------------------------
+const BASELINE = {
+  radius: 13, detail: 2,
+  fresnelLo: 0.02, fresnelHi: 0.8,
+  alphaGain: 1, alphaGamma: 1,
+  ageFade: 0.55, ageAlphaFade: 0,
+  depthWrite: false, a2c: false, interp: false,
+  darkBg: false, pilots: 9, animate: true, overlays: true,
+};
+const S = { ...BASELINE };
+
+// ---- synthetic day: pilots circling in two cores, a couple wandering -------
+// Parametric so animation is just "evaluate at time T". v comes from core
+// strength with radial/vertical falloff; the P90-of-positives vmax matches
+// buildCloudModel's ramp top.
+let pilots = [];
+let vmax = 3;
+const rnd = (a, b) => a + Math.random() * (b - a);
+
+function reseed() {
+  const cores = [
+    { x: 0, y: 0, str: rnd(2.5, 3.5), drift: 0.9 },
+    { x: rnd(500, 750), y: rnd(-250, 250), str: rnd(1.5, 2.5), drift: 0.9 },
+  ];
+  pilots = [];
+  for (let i = 0; i < S.pilots; i++) {
+    const core = cores[i % 2 === 0 || i < 2 ? (i < S.pilots / 2 ? 0 : 1) : 1];
+    const wanderer = i >= S.pilots - 2; // last two glide through weak lift
+    pilots.push({
+      core, wanderer,
+      r: rnd(35, 90), omega: rnd(0.28, 0.42) * (Math.random() < 0.5 ? -1 : 1),
+      phase: rnd(0, Math.PI * 2), alt0: rnd(1100, 1700), climb: rnd(0.8, 2.2),
+      gx: rnd(-800, -400), gy: rnd(-300, 300), gvx: rnd(8, 12), noise: rnd(0, 100),
+    });
+  }
+  // vmax: P90 of the positive vario the samples will actually show
+  const vs = [];
+  for (const p of pilots) for (let a = 0; a < TRAIL_S; a += STEP_S) {
+    const s = sampleAt(p, 0, a);
+    if (s.v > 0) vs.push(s.v);
+  }
+  vs.sort((a, b) => a - b);
+  vmax = vs.length ? Math.max(0.5, vs[Math.floor(vs.length * 0.9)]) : 3;
+}
+
+function sampleAt(p, T, ageS) {
+  const t = T - ageS;
+  if (p.wanderer) { // straight glide, weak broken lift
+    const x = p.gx + p.gvx * t * 0.12, y = p.gy;
+    const v = 0.6 * Math.sin(t * 0.05 + p.noise) + 0.4 * Math.sin(t * 0.017 + p.noise * 2) - 0.35;
+    return { x, y, alt: p.alt0 - 0.4 * t * 0.1, v };
+  }
+  const drift = p.core.drift * t; // wind drift, m east
+  const x = p.core.x + drift + p.r * Math.cos(p.omega * t + p.phase);
+  const y = p.core.y + p.r * Math.sin(p.omega * t + p.phase);
+  const alt = p.alt0 + p.climb * t * 0.55;
+  // stronger near the core axis and mid-band altitudes, plus slow surging
+  const radial = Math.exp(-(p.r * p.r) / (2 * 95 * 95));
+  const surge = 0.75 + 0.25 * Math.sin(t * 0.09 + p.phase * 3);
+  const v = p.core.str * radial * surge + 0.3 * Math.sin(t * 0.21 + p.noise) - 0.15;
+  return { x, y, alt, v };
+}
+
+// ---- scene ------------------------------------------------------------------
+const stage = document.getElementById('stage');
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+stage.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(55, 1, 1, 50000);
+camera.position.set(650, 500, 900);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(150, 0, 0);
+controls.enableDamping = true;
+
+const YEL = new THREE.Color(COL_LO), RED = new THREE.Color(COL_HI), PUR = new THREE.Color(COL_XHI), C = new THREE.Color();
+const uniforms = {
+  uFLo: { value: S.fresnelLo }, uFHi: { value: S.fresnelHi },
+  uGain: { value: S.alphaGain }, uGamma: { value: S.alphaGamma },
+};
+
+let field = null;
+let alphaAttr = null;
+const MAXI = 40 * (TRAIL_S / STEP_S + 1) * INTERP_SUB;
+
+// Geometry/material rebuild — radius, detail, blending, depthWrite all live here.
+function buildField() {
+  if (field) {
+    scene.remove(field);
+    field.geometry.dispose();
+    field.material.dispose();
+  }
+  const geo = new THREE.IcosahedronGeometry(S.radius, S.detail);
+  alphaAttr = new THREE.InstancedBufferAttribute(new Float32Array(MAXI), 1);
+  alphaAttr.setUsage(THREE.DynamicDrawUsage);
+  geo.setAttribute('instanceAlpha', alphaAttr);
+  // Alpha-to-coverage: alpha becomes an MSAA coverage mask instead of a blend
+  // factor, so the spheres write depth like opaque geometry (correct occlusion)
+  // while the fresnel rim still fades. Needs the opaque pass — no blending.
+  const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: !S.a2c, depthWrite: S.a2c || S.depthWrite });
+  if (S.a2c) mat.alphaToCoverage = true;
+  // Same shader as the app, with the constants lifted into uniforms.
+  mat.onBeforeCompile = (sh) => {
+    Object.assign(sh.uniforms, uniforms);
+    sh.vertexShader =
+      'attribute float instanceAlpha;\nvarying float vA;\nvarying vec3 vN;\nvarying vec3 vVp;\n' +
+      sh.vertexShader
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvA = instanceAlpha;\nvN = normalize(normalMatrix * normal);')
+        .replace('#include <project_vertex>', '#include <project_vertex>\nvVp = mvPosition.xyz;');
+    sh.fragmentShader =
+      'varying float vA;\nvarying vec3 vN;\nvarying vec3 vVp;\nuniform float uFLo;\nuniform float uFHi;\nuniform float uGain;\nuniform float uGamma;\n' +
+      sh.fragmentShader.replace(
+        '#include <color_fragment>',
+        '#include <color_fragment>\nfloat facing = clamp(dot(normalize(vN), normalize(-vVp)), 0.0, 1.0);\ndiffuseColor.a *= uGain * pow(vA, uGamma) * smoothstep(uFLo, uFHi, facing);',
+      );
+  };
+  field = new THREE.InstancedMesh(geo, mat, MAXI);
+  field.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(MAXI * 3), 3);
+  field.instanceColor.setUsage(THREE.DynamicDrawUsage);
+  field.frustumCulled = false;
+  scene.add(field);
+}
+
+const P = new THREE.Vector3(), Q = new THREE.Quaternion(), Sc = new THREE.Vector3(), Mx = new THREE.Matrix4();
+function fillInstances(T) {
+  let i = 0;
+  const emit = (x, y, alt, v, ageS) => {
+    if (v <= V_FLOOR || i >= MAXI) return;
+    const sc = 1 - S.ageFade * (ageS / TRAIL_S);
+    P.set(x, alt - 1400, -y);
+    Sc.set(sc, sc, sc);
+    Mx.compose(P, Q, Sc);
+    field.setMatrixAt(i, Mx);
+    const t = Math.min(1, Math.max(0, (v - V_FLOOR) / (vmax - V_FLOOR)));
+    alphaAttr.setX(i, t * (1 - S.ageAlphaFade * (ageS / TRAIL_S)));
+    C.copy(YEL).lerp(RED, t);
+    const over = Math.min(1, (v - vmax) / (XHI_SPAN * (vmax - V_FLOOR)));
+    if (over > 0) C.lerp(PUR, over);
+    field.setColorAt(i, C);
+    i++;
+  };
+  for (const p of pilots) {
+    // Lerp between grid samples, like the app would — not the parametric truth.
+    let prev = null;
+    for (let a = TRAIL_S; a >= 0; a -= STEP_S) {
+      const s = sampleAt(p, T, a);
+      if (S.interp && prev) {
+        for (let k = 1; k < INTERP_SUB; k++) {
+          const f = k / INTERP_SUB;
+          emit(
+            prev.x + (s.x - prev.x) * f, prev.y + (s.y - prev.y) * f,
+            prev.alt + (s.alt - prev.alt) * f, prev.v + (s.v - prev.v) * f,
+            a + STEP_S * (1 - f),
+          );
+        }
+      }
+      emit(s.x, s.y, s.alt, s.v, a);
+      prev = s;
+    }
+  }
+  field.count = i;
+  field.instanceMatrix.needsUpdate = true;
+  field.instanceColor.needsUpdate = true;
+  alphaAttr.needsUpdate = true;
+}
+
+// ---- pilot stand-ins: rimmed anchor/best dots, grey others, black trails ----
+// Mirrors the app's overlay so the cloud can be judged against it.
+const overlayG = new THREE.Group();
+scene.add(overlayG);
+const toScene = (s, out) => out.set(s.x, s.alt - 1400, -s.y);
+const rimDot = (color, r) => {
+  const m = new THREE.Mesh(new THREE.IcosahedronGeometry(r, 1), new THREE.MeshBasicMaterial({ color, transparent: true, depthTest: false }));
+  m.renderOrder = 11;
+  const rim = new THREE.Mesh(
+    new THREE.IcosahedronGeometry(r * 1.25, 1),
+    new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.BackSide, transparent: true, depthTest: false }),
+  );
+  rim.renderOrder = 10.5;
+  m.add(rim);
+  overlayG.add(m);
+  return m;
+};
+const meDot = rimDot(ACCENT, 16);
+const bestDot = rimDot(HILITE, 13);
+const trailMat = new LineMaterial({ color: 0x000000, linewidth: TRAIL_W, transparent: true, depthTest: false });
+trailMat.onBeforeCompile = (sh) => {
+  sh.vertexShader =
+    'attribute float instanceWidth;\n' + sh.vertexShader.replace('offset *= linewidth;', 'offset *= linewidth * instanceWidth;');
+};
+const fatLine = () => {
+  const g = new LineGeometry();
+  g.setPositions([0, 0, 0, 0, 0, 0]);
+  g.setAttribute('instanceWidth', new THREE.InstancedBufferAttribute(new Float32Array([1]), 1));
+  const l = new Line2(g, trailMat);
+  l.renderOrder = 11;
+  l.frustumCulled = false;
+  overlayG.add(l);
+  return l;
+};
+const meTrail = fatLine();
+const bestTrail = fatLine();
+const setFatTrail = (line, p, T, windowS) => {
+  const pts = [];
+  for (let a = windowS; a >= 0; a -= STEP_S) {
+    const s = sampleAt(p, T, a);
+    toScene(s, V3);
+    pts.push(V3.x, V3.y, V3.z);
+  }
+  line.geometry.setPositions(pts);
+  const segs = pts.length / 3 - 1;
+  const widths = new Float32Array(segs);
+  for (let s = 0; s < segs; s++) {
+    const ageS = (segs - 1 - s) * STEP_S;
+    widths[s] = (1 + (TRAIL_W - 1) * Math.max(0, 1 - ageS / TAPER_S)) / TRAIL_W;
+  }
+  line.geometry.setAttribute('instanceWidth', new THREE.InstancedBufferAttribute(widths, 1));
+};
+const GREY_MAX = 20;
+const greyDots = [];
+const greyTails = [];
+const greyMat = new THREE.MeshBasicMaterial({ color: GREY, transparent: true, depthTest: false });
+const greyLineMat = new THREE.LineBasicMaterial({ color: GREY, transparent: true, opacity: 0.6, depthTest: false });
+for (let k = 0; k < GREY_MAX; k++) {
+  const d = new THREE.Mesh(new THREE.IcosahedronGeometry(4, 1), greyMat);
+  d.renderOrder = 10;
+  overlayG.add(d);
+  greyDots.push(d);
+  const l = new THREE.Line(new THREE.BufferGeometry(), greyLineMat);
+  l.renderOrder = 10;
+  l.frustumCulled = false;
+  overlayG.add(l);
+  greyTails.push(l);
+}
+const V3 = new THREE.Vector3();
+function updateOverlays(T) {
+  overlayG.visible = S.overlays;
+  if (!S.overlays) return;
+  const nows = pilots.map((p) => ({ p, s: sampleAt(p, T, 0) }));
+  const anchor = nows[0];
+  let best = null;
+  for (let k = 1; k < nows.length; k++) if (nows[k].s.v > 0 && (!best || nows[k].s.v > best.s.v)) best = nows[k];
+  toScene(anchor.s, meDot.position);
+  setFatTrail(meTrail, anchor.p, T, ANCHOR_TRAIL_S);
+  bestDot.visible = bestTrail.visible = !!best;
+  if (best) {
+    toScene(best.s, bestDot.position);
+    setFatTrail(bestTrail, best.p, T, TAIL_S);
+  }
+  let g = 0;
+  for (const n of nows) {
+    if (n === anchor || n === best || g >= GREY_MAX) continue;
+    toScene(n.s, greyDots[g].position);
+    greyDots[g].visible = true;
+    const pts = [];
+    for (let a = TAIL_S; a >= 0; a -= STEP_S) {
+      const s = sampleAt(n.p, T, a);
+      pts.push(toScene(s, V3).clone());
+    }
+    greyTails[g].geometry.dispose();
+    greyTails[g].geometry = new THREE.BufferGeometry().setFromPoints(pts);
+    greyTails[g].visible = true;
+    g++;
+  }
+  for (; g < GREY_MAX; g++) greyDots[g].visible = greyTails[g].visible = false;
+}
+
+// ---- controls ---------------------------------------------------------------
+const controlsEl = document.getElementById('controls');
+const rebuilders = []; // called on baseline-reset to sync inputs
+
+function slider(group, key, label, min, max, step, onChange) {
+  const row = document.createElement('div');
+  row.className = 'row';
+  const inp = document.createElement('input');
+  Object.assign(inp, { type: 'range', min, max, step, value: S[key] });
+  // Chrome restores form state on reload (even with autocomplete=off) and fires
+  // the handlers; a fresh name each load breaks the match so defaults stick.
+  inp.name = key + '-' + Math.random().toString(36).slice(2);
+  const out = document.createElement('output');
+  const show = () => (out.textContent = Number(S[key]).toFixed(step < 0.01 ? 3 : step < 1 ? 2 : 0));
+  inp.oninput = () => { S[key] = Number(inp.value); show(); onChange(); };
+  const lab = document.createElement('label');
+  lab.textContent = label;
+  row.append(lab, inp, out);
+  group.append(row);
+  rebuilders.push(() => { inp.value = S[key]; show(); });
+  show();
+}
+function check(group, key, label, onChange) {
+  const row = document.createElement('div');
+  row.className = 'row';
+  const inp = document.createElement('input');
+  Object.assign(inp, { type: 'checkbox', checked: S[key] });
+  inp.name = key + '-' + Math.random().toString(36).slice(2);
+  inp.onchange = () => { S[key] = inp.checked; onChange(); };
+  const lab = document.createElement('label');
+  lab.style.width = 'auto';
+  lab.append(inp, ` ${label}`);
+  row.append(lab);
+  group.append(row);
+  rebuilders.push(() => (inp.checked = S[key]));
+}
+function fs(title) {
+  const f = document.createElement('fieldset');
+  const l = document.createElement('legend');
+  l.textContent = title;
+  f.append(l);
+  controlsEl.append(f);
+  return f;
+}
+
+const noop = () => {};
+const setUniforms = () => {
+  uniforms.uFLo.value = S.fresnelLo;
+  uniforms.uFHi.value = S.fresnelHi;
+  uniforms.uGain.value = S.alphaGain;
+  uniforms.uGamma.value = S.alphaGamma;
+};
+const setBg = () => (scene.background = new THREE.Color(S.darkBg ? BG_DARK : BG_LIGHT));
+
+const gGeo = fs('Sphere');
+slider(gGeo, 'radius', 'radius (m)', 4, 45, 1, buildField);
+slider(gGeo, 'detail', 'detail', 0, 3, 1, buildField);
+slider(gGeo, 'ageFade', 'age size fade', 0, 1, 0.05, noop);
+check(gGeo, 'interp', `interpolate between samples (×${INTERP_SUB})`, noop);
+
+const gAlpha = fs('Alpha');
+slider(gAlpha, 'ageAlphaFade', 'age alpha fade', 0, 1, 0.05, noop);
+slider(gAlpha, 'fresnelLo', 'edge fade lo', 0, 1, 0.01, setUniforms);
+slider(gAlpha, 'fresnelHi', 'edge fade hi', 0, 1.5, 0.01, setUniforms);
+slider(gAlpha, 'alphaGain', 'gain', 0, 1.5, 0.01, setUniforms);
+slider(gAlpha, 'alphaGamma', 'gamma', 0.2, 4, 0.05, setUniforms);
+
+const gBlend = fs('Blending');
+check(gBlend, 'depthWrite', 'depth write', buildField);
+check(gBlend, 'a2c', 'alpha to coverage (opaque + MSAA)', buildField);
+check(gBlend, 'darkBg', 'dark background', setBg);
+
+const gScene = fs('Scene');
+slider(gScene, 'pilots', 'pilots', 3, 20, 1, reseed);
+check(gScene, 'animate', 'animate', noop);
+check(gScene, 'overlays', 'pilot dots + trails', noop);
+
+document.getElementById('baseline').onclick = () => {
+  const keep = { darkBg: S.darkBg, pilots: S.pilots, animate: S.animate };
+  Object.assign(S, BASELINE, keep);
+  rebuilders.forEach((f) => f());
+  setUniforms();
+  buildField();
+};
+document.getElementById('reseed').onclick = reseed;
+
+// ---- Apply: print the tuning block for src/scripts/thermal-cloud.ts --------
+// Keep this template identical to the block in the app file, comments and all,
+// so pasting is a straight replace between the tuning markers.
+const tuneBlock = () => `// ---- cloud dot tuning: paste the Apply block from the playground here ------
+// (analysis/thermal-dots-proto.html — its Apply button prints this block)
+const SPHERE_R = ${S.radius};
+const SPHERE_DETAIL = ${S.detail};
+const FRESNEL_LO = ${S.fresnelLo}; // alpha *= smoothstep(lo, hi, facing)
+const FRESNEL_HI = ${S.fresnelHi};
+const ALPHA_GAIN = ${S.alphaGain}; // alpha = gain * t^gamma
+const ALPHA_GAMMA = ${S.alphaGamma};
+const AGE_FADE = ${S.ageFade}; // size shrink over the 3 min window
+const AGE_ALPHA_FADE = ${S.ageAlphaFade}; // opacity fade over the same window
+const DEPTH_WRITE = ${S.depthWrite};
+const ALPHA_TO_COVERAGE = ${S.a2c}; // opaque + MSAA; overrides DEPTH_WRITE
+const INTERP_SUB = ${S.interp ? INTERP_SUB : 1}; // spheres per 5 s sample gap; 1 = off
+// ---- end tuning -------------------------------------------------------------`;
+const modal = document.getElementById('applyModal');
+const modalText = modal.querySelector('textarea');
+document.getElementById('apply').onclick = () => {
+  modalText.value = tuneBlock();
+  modal.hidden = false;
+  modalText.focus();
+  modalText.select();
+};
+document.getElementById('applyClose').onclick = () => (modal.hidden = true);
+modal.onclick = (e) => { if (e.target === modal) modal.hidden = true; };
+document.getElementById('applyCopy').onclick = async () => {
+  try {
+    await navigator.clipboard.writeText(modalText.value);
+    document.getElementById('applyCopy').textContent = 'Copied ✓';
+  } catch {
+    modalText.select(); // clipboard blocked: leave it selected for cmd-C
+  }
+};
+
+// ---- loop -------------------------------------------------------------------
+const onResize = () => {
+  const w = stage.clientWidth, h = stage.clientHeight;
+  renderer.setSize(w, h, false);
+  trailMat.resolution.set(w, h);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+};
+new ResizeObserver(onResize).observe(stage);
+
+let T = 0, last = performance.now();
+function loop(now) {
+  if (S.animate) T += (now - last) / 1000;
+  last = now;
+  // Quantize to the sample grid: like the app, a fix never moves — it ages in
+  // place, and a new dot appears at the pilot every STEP_S.
+  const Tq = Math.floor(T / STEP_S) * STEP_S;
+  fillInstances(Tq);
+  updateOverlays(Tq);
+  controls.update();
+  renderer.render(scene, camera);
+  requestAnimationFrame(loop);
+}
+
+setBg();
+reseed();
+buildField();
+onResize();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
