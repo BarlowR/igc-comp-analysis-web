@@ -180,12 +180,11 @@ function compMeta(group: CompGroup): string {
               {t.comps.length === 0 ? (
                 <p class="archive-empty">No {t.label.toLowerCase()} tasks archived yet.</p>
               ) : (
-                t.comps.map((group, i) => (
+                t.comps.map((group) => (
                   /* Native disclosure: keyboard and screen-reader behaviour for
-                     free, and it still works with the tab script unloaded. The
-                     newest comp opens so the page doesn't land as a wall of
-                     closed rows; the rest are a click away. */
-                  <details class="archive-comp" open={i === 0}>
+                     free, and it still works with the tab script unloaded. All
+                     comps land collapsed; each is a click away. */
+                  <details class="archive-comp">
                     <summary>
                       {/* Drawn rather than typed: a "›" glyph isn't centred in
                           its em box, so rotating it to point down lifts it off

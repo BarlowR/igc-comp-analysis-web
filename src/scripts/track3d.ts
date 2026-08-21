@@ -115,7 +115,7 @@ async function main(): Promise<void> {
   }
 
   // Same ordering / top-20 default / colours as the 2D page.
-  const { ordered, sel, colors, truncated, topN } = buildPilotSelection(data.table, mapData);
+  const { ordered, sel, colors } = buildPilotSelection(data.table, mapData);
 
   // Column height for turnpoint cylinders: a bit above the highest fix.
   let maxAlt = 0;
@@ -397,8 +397,6 @@ async function main(): Promise<void> {
   viewer.flyTo(viewer.entities, { duration: 1.5 });
   void enableTerrain(viewer, statusEl, () => task.setTerrain(true));
 
-  const field = truncated ? `Top ${topN} of ${ordered.length} pilots` : `${ordered.length} pilots`;
-  statusEl.textContent = `${field} — check to show, click a name to pin + follow. Drag the altitude plot or press ▶.`;
 }
 
 // ---- cloud pane -----------------------------------------------------------

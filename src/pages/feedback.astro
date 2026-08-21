@@ -1,0 +1,93 @@
+---
+// Feedback form: bug reports and feature requests, straight into Supabase
+// (supabase/migrations/0012_feedback.sql). Works signed out — the table is
+// write-only through the API. src/scripts/feedback.ts wires it.
+import Base from '../layouts/Base.astro';
+---
+
+<Base title="Feedback — Outclimb.app">
+  <header class="hero">
+    <h1>Feedback</h1>
+  </header>
+
+  <main>
+    <section class="card account-card" id="feedback-unconfigured" hidden>
+      <h2>Feedback is off</h2>
+      <p class="field-hint">
+        This build has no Supabase credentials, so there is nowhere to send it. Set
+        <code>PUBLIC_SUPABASE_URL</code> and <code>PUBLIC_SUPABASE_ANON_KEY</code> and rebuild.
+      </p>
+    </section>
+
+    <section class="card account-card" id="feedback-card">
+      <p class="field-hint">
+        Found a bug, or want something the site doesn't do? A couple of sentences is plenty.
+      </p>
+      <form id="feedback-form" class="account-form">
+        <label class="field-label" for="feedback-kind">What is it?</label>
+        <select id="feedback-kind" name="kind">
+          <option value="bug">A bug — something's broken</option>
+          <option value="idea">An idea — a feature request</option>
+        </select>
+
+        {/* Titles and placeholders track the kind selector — feedback.ts swaps them. */}
+        <label class="field-label" for="feedback-body"><span id="feedback-body-label">What happened?</span></label>
+        <textarea id="feedback-body" name="body" required maxlength="5000"
+          placeholder="What did you do, and what did the site do instead?"></textarea>
+
+        <label class="field-label" for="feedback-page">
+          <span id="feedback-page-label">Where did it happen?</span>
+          <span class="field-optional">(optional)</span>
+        </label>
+        <input id="feedback-page" type="text" name="page" maxlength="300"
+          placeholder="Page, or comp and day, if it's about a specific one" />
+
+        {/* Hidden for signed-in reporters — their account is the contact. */}
+        <div id="feedback-contact-row" class="feedback-contact-row">
+          <label class="field-label" for="feedback-contact">
+            How to reach you <span class="field-optional">(optional)</span>
+          </label>
+          <input id="feedback-contact" type="text" name="contact" maxlength="200"
+            placeholder="Email, if you'd like a reply" autocomplete="email" />
+        </div>
+
+        {/* Honeypot: invisible to people, filled in by dumb bots. The name is
+            deliberately meaningless — address-vocabulary names like "website"
+            get filled by browser profile autofill (which ignores
+            autocomplete="off"), silently eating real reports. */}
+        <input id="feedback-hp" class="feedback-hp" type="text" name="hp-check"
+          tabindex="-1" autocomplete="off" aria-hidden="true" />
+
+        <button id="feedback-submit" type="submit" class="account-btn">Send</button>
+      </form>
+      {/* Bug reports only — feedback.ts hides it for ideas. */}
+      <p id="feedback-trail-note" class="field-hint">
+        To help debugging, a bug report includes your browser type and your last few
+        actions on this visit (pages, clicks, and any script errors). Nothing is
+        collected until you press Send.
+      </p>
+      <p id="feedback-status" class="form-status" role="status" aria-live="polite"></p>
+    </section>
+  </main>
+
+  <style>
+    .feedback-contact-row {
+      display: contents;
+    }
+    .feedback-hp {
+      position: absolute !important;
+      left: -9999px;
+      width: 1px;
+      height: 1px;
+      opacity: 0;
+    }
+    .field-optional {
+      color: var(--muted);
+      font-weight: 400;
+    }
+  </style>
+
+  <script>
+    import '../scripts/feedback';
+  </script>
+</Base>

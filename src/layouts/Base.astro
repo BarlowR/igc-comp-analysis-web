@@ -18,6 +18,9 @@ const path = Astro.url.pathname;
 const isArchive = path === '/' || path.startsWith('/archive');
 const isAnalyze = path.startsWith('/analyze');
 const isNotebooks = path.startsWith('/notebooks');
+const isFeedback = path.startsWith('/feedback');
+// The 3D replay fills the viewport; no feedback pill there.
+const is3d = /\/3d\/?$/.test(path);
 ---
 
 <!doctype html>
@@ -49,9 +52,20 @@ const isNotebooks = path.startsWith('/notebooks');
 
     <slot />
 
+    {/* Bottom band, not a nav tab. Redundant on /feedback; omitted on the
+        full-screen 3D replay. */}
+    {
+      !isFeedback && !is3d && (
+        <footer class="feedback-band">
+          Found a bug, or want something the site doesn't do? <a href="/feedback">Send feedback →</a>
+        </footer>
+      )
+    }
+
     <script>
       import '../scripts/nav-account';
       import '../scripts/back-chip';
+      import '../scripts/breadcrumbs';
     </script>
   </body>
 </html>

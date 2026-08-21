@@ -1,0 +1,82 @@
+# Feedback gate: red while any bug report in public.feedback is unresolved.
+#
+# Reads the (API-write-only) feedback table with the service-role key, which
+# bypasses RLS — set these repo secrets:
+#   SUPABASE_URL                e.g. https://abcdefgh.supabase.co
+#   SUPABASE_SERVICE_ROLE_KEY   Project Settings → API → service_role
+#
+# Runs on a daily cron and by hand — never on pull_request, so the secret is
+# never in reach of fork PRs. The job summary lists open reports; because this
+# repo is public those summaries are public too, so the reporter's contact
+# field is deliberately never printed and bodies are truncated.
+#
+# Resolve a bug (SQL editor):  update public.feedback set resolved_at = now() where id = '…';
+
+name: Feedback gate
+
+on:
+  schedule:
+    - cron: '17 6 * * *' # daily, 06:17 UTC
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  bugs:
+    name: Unresolved bug reports
+    runs-on: ubuntu-latest
+    steps:
+      - name: Query feedback table
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SUPABASE_URL:-}" ] || [ -z "${SERVICE_KEY:-}" ]; then
+            echo "::error::Set the SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY repo secrets."
+            exit 1
+          fi
+
+          fetch() {
+            curl -sSf \
+              "$SUPABASE_URL/rest/v1/feedback?kind=eq.$1&resolved_at=is.null&select=created_at,page,body&order=created_at.desc" \
+              -H "apikey: $SERVICE_KEY" \
+              -H "Authorization: Bearer $SERVICE_KEY"
+          }
+          bugs=$(fetch bug) || { echo "::error::Query failed — is migration 0012 applied, and are the secrets right?"; exit 1; }
+          ideas=$(fetch idea) || { echo "::error::Query failed — is migration 0012 applied, and are the secrets right?"; exit 1; }
+          n_bugs=$(jq length <<<"$bugs")
+          n_ideas=$(jq length <<<"$ideas")
+
+          # One markdown table row per report: filed time, page, body with
+          # newlines/pipes flattened and cut to 160 chars. No contact column.
+          row='.[] | "| \(.created_at[:16]) | \(.page // "—") | \((.body | gsub("[\\n\\r|]"; " "))[:160]) |"'
+          {
+            echo "## Feedback gate"
+            echo
+            echo "**${n_bugs} unresolved bug(s) · ${n_ideas} open idea(s)**"
+            if [ "$n_bugs" -gt 0 ]; then
+              echo
+              echo "### 🐛 Bugs — failing the gate"
+              echo
+              echo "| filed (UTC) | page | report |"
+              echo "|---|---|---|"
+              jq -r "$row" <<<"$bugs"
+            fi
+            if [ "$n_ideas" -gt 0 ]; then
+              echo
+              echo "### 💡 Ideas — informational"
+              echo
+              echo "| filed (UTC) | page | request |"
+              echo "|---|---|---|"
+              jq -r "$row" <<<"$ideas"
+            fi
+            echo
+            echo 'Contact details (if any) are in the table, not shown here. Resolve with: `update public.feedback set resolved_at = now() where id = …;`'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$n_bugs" -gt 0 ]; then
+            echo "::error::$n_bugs unresolved bug report(s) in public.feedback — see the job summary."
+            exit 1
+          fi
+          echo "No unresolved bugs. $n_ideas idea(s) open."

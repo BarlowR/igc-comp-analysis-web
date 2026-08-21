@@ -31,8 +31,15 @@ export function getSupabase(): Promise<SupabaseClient> {
       new Error('Accounts are not configured: set PUBLIC_SUPABASE_URL and PUBLIC_SUPABASE_ANON_KEY.'),
     );
   }
-  clientPromise ??= import('@supabase/supabase-js').then(({ createClient }) =>
-    createClient(SUPABASE_URL!, SUPABASE_ANON_KEY!, {
+  // The catch un-memoizes a failed dynamic import: without it one transient
+  // chunk-load failure would poison every later call until a full reload.
+  clientPromise ??= import('@supabase/supabase-js')
+    .catch((err: unknown) => {
+      clientPromise = null;
+      throw err;
+    })
+    .then(({ createClient }) =>
+      createClient(SUPABASE_URL!, SUPABASE_ANON_KEY!, {
       auth: {
         storageKey: STORAGE_KEY,
         flowType: 'pkce',

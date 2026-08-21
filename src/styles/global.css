@@ -37,6 +37,37 @@ body {
   min-height: 100vh;
 }
 
+/* The feedback entry point: a slim accent band at the bottom of every page
+   (the fixed full-screen viewers just cover it). sticky + top:100vh pins it
+   to the screen bottom on short pages without changing the body's layout —
+   the body stays a plain block so no other page's spacing shifts. */
+/* Shaped like the site's cards (panel, border-strong, radius, shadow), not a
+   full-bleed strip — nothing on this canvas runs edge to edge. */
+.feedback-band {
+  position: sticky;
+  top: 100vh;
+  width: fit-content;
+  margin: 1.5rem auto;
+  padding: 0.5rem 1.1rem;
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 11px;
+  box-shadow: 0 1px 3px rgba(20, 12, 12, 0.08);
+  color: var(--muted);
+  text-align: center;
+  font-size: 0.85rem;
+}
+
+.feedback-band a {
+  color: var(--text);
+  font-weight: inherit;
+  text-decoration-color: var(--border);
+}
+
+.feedback-band a:hover {
+  text-decoration-color: var(--border-strong);
+}
+
 /* Top navigation shared across the tool and the archive. */
 .topnav {
   max-width: 1100px;
@@ -1323,6 +1354,7 @@ table.stats td.name {
 
 .account-form input[type='email'],
 .account-form input[type='text'],
+.account-form textarea,
 .account-form select {
   width: 100%;
   background: var(--panel-2);
@@ -1333,9 +1365,15 @@ table.stats td.name {
   font: inherit;
 }
 
-.account-form input:focus-visible {
+.account-form input:focus-visible,
+.account-form textarea:focus-visible {
   outline: none;
   border-color: var(--accent);
+}
+
+.account-form textarea {
+  resize: vertical;
+  min-height: 7rem;
 }
 
 .account-btn {
