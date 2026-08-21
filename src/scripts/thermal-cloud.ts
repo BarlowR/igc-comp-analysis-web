@@ -3,8 +3,8 @@
  *
  * The air is drawn as a translucent cloud of instanced spheres, one per fix in
  * the trailing three minutes that sat near the anchor: colour and opacity ramp
- * with climb strength (transparent yellow → opaque red at VMAX), size fades
- * with age, sink is not drawn. Other pilots are grey dots with short tails; the
+ * with climb strength (transparent yellow at V_FLOOR → opaque red at VMAX),
+ * size fades with age, sink below V_FLOOR is not drawn. Other pilots are grey dots with short tails; the
  * pinned pilot wears their globe colour, and the best climber nearby is teal.
  *
  * Lives in the pane beside the globe on the 3D replay page (Viewer3d.astro,
@@ -61,6 +61,7 @@ export interface ThermalCloud {
 // ---- encodings (spec) -------------------------------------------------------
 const SPHERE_R = 13;
 const SPHERE_DETAIL = 2;
+const V_FLOOR = -1; // m/s; the ramp's transparent end — air sinking faster is not drawn
 const COL_LO = 0xf2c230;
 const COL_HI = 0xe24b4a;
 const GREY = 0x8a847a;
@@ -170,7 +171,7 @@ export function mountThermalCloud(container: HTMLElement, opts: ThermalCloudOpti
   const legend = el('div', 'tc-legend');
   const scale = el('div', 'tc-scale');
   const vmaxLabel = el('span', undefined, '+— m/s');
-  scale.append(el('span', undefined, '0'), el('div', 'bar'), vmaxLabel);
+  scale.append(el('span', undefined, `${V_FLOOR}`), el('div', 'bar'), vmaxLabel);
   const greyRow = el('span');
   const chip = el('span', 'tc-chip');
   chip.style.background = '#8a847a';
@@ -179,7 +180,7 @@ export function mountThermalCloud(container: HTMLElement, opts: ThermalCloudOpti
   const bestChip = el('span', 'tc-chip');
   bestChip.style.background = '#1F8A9E';
   bestRow.append(bestChip, 'best climb nearby');
-  legend.append(el('b', undefined, 'Lift'), scale, greyRow, bestRow, el('span', undefined, 'sink not drawn'));
+  legend.append(el('b', undefined, 'Lift'), scale, greyRow, bestRow, el('span', undefined, `sink below ${V_FLOOR} m/s not drawn`));
   overlay.append(stats, legend);
   below.append(overlay);
 
@@ -513,13 +514,13 @@ export function mountThermalCloud(container: HTMLElement, opts: ThermalCloudOpti
     let i = 0;
     const metaNext: typeof airMeta = [];
     for (const s of f.air) {
-      if (s.v <= 0 || i >= MAXI) continue;
+      if (s.v <= V_FLOOR || i >= MAXI) continue;
       const sc = 1 - 0.55 * (s.ageS / (TRAIL_MS / 1000));
       W(s.x, s.alt, s.y, P);
       S.set(sc, sc, sc);
       Mx.compose(P, Q, S);
       field.setMatrixAt(i, Mx);
-      const t = Math.min(1, s.v / M.vmax);
+      const t = Math.min(1, (s.v - V_FLOOR) / (M.vmax - V_FLOOR));
       alphaAttr.setX(i, t);
       C.copy(YEL).lerp(RED, t);
       field.setColorAt(i, C);
