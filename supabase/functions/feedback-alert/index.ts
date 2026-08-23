@@ -38,6 +38,28 @@ const env = (key: string): string => {
   return v;
 };
 
+/**
+ * The reporter's email, looked up through the Auth admin API with the
+ * service-role key Supabase injects into every function. Falls back to the
+ * bare id when the lookup fails — better a UUID in the mail than no mail.
+ */
+async function accountEmail(userId: string): Promise<string> {
+  try {
+    const res = await fetch(`${env('SUPABASE_URL')}/auth/v1/admin/users/${userId}`, {
+      headers: {
+        apikey: env('SUPABASE_SERVICE_ROLE_KEY'),
+        Authorization: `Bearer ${env('SUPABASE_SERVICE_ROLE_KEY')}`,
+      },
+    });
+    if (!res.ok) throw new Error(`${res.status}`);
+    const { email } = (await res.json()) as { email?: string };
+    return email ?? `account ${userId}`;
+  } catch (err) {
+    console.error('user lookup failed', err);
+    return `account ${userId}`;
+  }
+}
+
 const esc = (s: string): string =>
   s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 
@@ -55,7 +77,7 @@ Deno.serve(async (req) => {
 
   const label = { bug: '🐛 Bug report', idea: '💡 Idea', task: '🗂 Task request' }[r.kind] ?? r.kind;
   const subject = `[Outclimb] ${label}${r.page ? ` — ${r.page}` : ''}`;
-  const who = r.user_id ? `account ${r.user_id}` : 'anonymous';
+  const who = r.user_id ? await accountEmail(r.user_id) : 'anonymous';
   const contact = r.contact ? esc(r.contact) : '—';
   const html = `
     <p><strong>${label}</strong> · ${esc(r.created_at)} · ${esc(who)}</p>
