@@ -24,6 +24,8 @@ interface Entry {
   date?: string;
   igcFiles: string[];
   hidden?: boolean;
+  /** "header" (default) or "filename" — see NameSource in lib/competition. */
+  nameSource?: string;
 }
 
 /** Enough to clear the H-record block of any IGC we've seen. */
@@ -62,9 +64,13 @@ export const GET: APIRoute = () => {
     for (const file of entry.igcFiles) {
       let displayed: string;
       try {
-        // Same rule as IgcFlight: the header name if there is one, else the
-        // filename — so these keys match the names shown on the day page.
-        displayed = pilotNameFromHeader(readHeader(join(dir, file))) ?? nameFromFile(file);
+        // Same rule as the day page: filename-first where meta.json says the
+        // headers carry tracker artifacts, else the header name if there is
+        // one — so these keys match the names shown on the day page.
+        displayed =
+          entry.nameSource === 'filename'
+            ? nameFromFile(file)
+            : (pilotNameFromHeader(readHeader(join(dir, file))) ?? nameFromFile(file));
       } catch (err) {
         console.error(`[roster] skipped ${entry.comp}/${entry.day}/${file}:`, err);
         continue;

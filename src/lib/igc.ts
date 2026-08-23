@@ -9,6 +9,7 @@
 
 import {
   haversine,
+  insideCylinder,
   diff,
   shift,
   divide,
@@ -115,6 +116,8 @@ export class IgcFlight {
   stats: Stats = {};
   /** Epoch ms of the SSS start gate (set by buildCompMetrics). */
   startGateMs: number | null = null;
+  /** Epoch ms of the detected landing (set by buildCompMetrics), if any. */
+  landingMs: number | null = null;
   /** Index (in the comp window) of the fix where the pilot exited the SSS. */
   private sssExitIdx: number | null = null;
 
@@ -378,7 +381,18 @@ export class IgcFlight {
     // then only recomputing the cumulative metrics over the window.
     let startIdx = this.df.timeMs.findIndex((t) => t >= startMs);
     if (startIdx === -1) startIdx = this.df.timeMs.length; // empty window
-    const comp = sliceColumns(this.df, startIdx);
+    let comp = sliceColumns(this.df, startIdx);
+
+    // Cut the window at landing: comp tracklogs (LiveTrack especially) keep
+    // logging through the retrieve drive, and a drive along the highway tags
+    // cylinders — up to and including the goal LZ — that the flight never did.
+    const landedIdx = this.landingIndex(comp);
+    if (landedIdx !== -1) {
+      comp = sliceColumns(comp, 0, landedIdx + 1);
+      this.landingMs = comp.timeMs[comp.timeMs.length - 1] ?? null;
+    } else {
+      this.landingMs = null;
+    }
 
     this.calcCumulative(comp);
     this.trackTaskProgress(comp, task);
@@ -433,6 +447,57 @@ export class IgcFlight {
     return Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate(), h, m, s);
   }
 
+  /**
+   * Index of the first fix where the track has gone stationary for good — the
+   * landing. Stationary means a 5-minute window that stays within 100 m of its
+   * first fix and inside a 10 m altitude spread: packing up a wing qualifies,
+   * while no airborne state does (even a tight scratch drifts or climbs more
+   * than that), and neither does the drive out. The scan only begins once the
+   * track has actually flown — a 60 s window covering ≥300 m — so a pilot
+   * sitting on launch after the gate opens isn't cropped to nothing. Returns -1
+   * when the track never goes stationary (e.g. it already ends at landing).
+   */
+  private landingIndex(c: Columns): number {
+    const n = c.timeMs.length;
+    const LAUNCH_WINDOW_MS = 60_000;
+    const LAUNCH_MOVE_M = 300;
+    const LANDED_WINDOW_MS = 300_000;
+    const LANDED_DRIFT_M = 100;
+    const LANDED_ALT_SPREAD_M = 10;
+    const STEP = 8; // anchor stride; stationary spells last many minutes
+
+    let launched = -1;
+    for (let i = 0; i < n && launched === -1; i += STEP) {
+      for (let j = i + 1; j < n && c.timeMs[j] - c.timeMs[i] <= LAUNCH_WINDOW_MS; j++) {
+        if (haversine(c.lat[i], c.lon[i], c.lat[j], c.lon[j]) >= LAUNCH_MOVE_M) {
+          launched = i;
+          break;
+        }
+      }
+    }
+    if (launched === -1) return -1;
+
+    for (let i = launched; i < n; i += STEP) {
+      let j = i;
+      let minAlt = Infinity;
+      let maxAlt = -Infinity;
+      let still = true;
+      for (; j < n && c.timeMs[j] - c.timeMs[i] < LANDED_WINDOW_MS; j++) {
+        minAlt = Math.min(minAlt, c.gnssAlt[j]);
+        maxAlt = Math.max(maxAlt, c.gnssAlt[j]);
+        if (
+          maxAlt - minAlt >= LANDED_ALT_SPREAD_M ||
+          haversine(c.lat[i], c.lon[i], c.lat[j], c.lon[j]) >= LANDED_DRIFT_M
+        ) {
+          still = false;
+          break;
+        }
+      }
+      if (still && j < n) return i; // j==n: window ran off the end — not proven stationary
+    }
+    return -1;
+  }
+
   /** Walk the turnpoint cylinders to label each fix with the next waypoint. */
   private trackTaskProgress(c: Columns, task: XcTask): void {
     const tps = task.turnpoints;
@@ -469,8 +534,7 @@ export class IgcFlight {
       }
 
       const tp = tps[nextIdx];
-      const dist = haversine(c.lat[i], c.lon[i], tp.lat, tp.lon);
-      const inCylinder = dist <= tp.radius;
+      const inCylinder = insideCylinder(c.lat[i], c.lon[i], tp.lat, tp.lon, tp.radius);
 
       if (inCylinder && entryTime === null) entryTime = c.timeMs[i];
 

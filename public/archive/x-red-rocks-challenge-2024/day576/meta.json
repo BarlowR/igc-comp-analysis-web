@@ -17,9 +17,7 @@
     "Chris Mann.1075.215.igc",
     "Damon Hardwick.930.203.igc",
     "Didier C. Torres.1070.211.igc",
-    "Francois Appere.1079.221.igc",
     "Jake Rendina.824.206.igc",
-    "James Willis .1074.214.igc",
     "Jeff Wayland.1064.220.igc",
     "Jeffrey Williams.1085.224.igc",
     "Joey villeneuve .1071.212.igc",
@@ -33,5 +31,6 @@
     "Robert Barlow.961.204.igc",
     "Rodney Lyons.1017.207.igc",
     "Skyler Pinion.1065.209.igc"
-  ]
+  ],
+  "nameSource": "filename"
 }

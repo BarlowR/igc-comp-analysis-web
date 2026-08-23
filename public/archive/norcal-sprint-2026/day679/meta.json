@@ -2,7 +2,7 @@
   "comp": "norcal-sprint-2026",
   "compLabel": "2026 NorCal Sprint League",
   "day": "day679",
-  "dayLabel": "Potato Hill \u2014 Jul 18",
+  "dayLabel": "Potato Hill — Jul 18",
   "date": "2026-07-18",
   "title": "2026-07-18 - Potato Hill - Race to Goal 22.054km",
   "utcOffsetMinutes": -420,
@@ -25,5 +25,6 @@
     "Walter Gutierrez.1127.126.igc",
     "casey gerstle.1019.124.igc"
   ],
-  "hidden": true
+  "hidden": true,
+  "nameSource": "filename"
 }
