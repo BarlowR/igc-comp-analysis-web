@@ -882,6 +882,7 @@ table.stats td.name {
   color: var(--accent);
 }
 
+
 .archive .tab {
   display: inline-flex;
   align-items: center;
@@ -994,6 +995,26 @@ table.stats td.name {
 }
 
 /* Smaller than the old per-comp <h2>: a row in a list, not a section heading. */
+/* Last row of each comp list: laid out like a comp summary, but a link. */
+.archive-suggest {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  padding: 0.7rem 0.15rem;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.archive-suggest:hover .comp-name,
+.archive-suggest:hover .comp-meta {
+  color: var(--accent-strong);
+}
+
+.archive-suggest .comp-name {
+  font-size: 0.95rem;
+}
+
 .comp-name {
   font-size: 1.05rem;
   font-weight: 400;

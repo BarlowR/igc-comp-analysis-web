@@ -14,3 +14,5 @@ public/cesium/
 analysis_out/
 
 __pycache__/
+# Supabase CLI state (created by `supabase link`)
+supabase/.temp/

@@ -26,21 +26,33 @@ if (!isConfigured) {
   $('feedback-card').hidden = true;
 }
 
-// Prefill "where" with the page that linked here, when it's one of ours.
-try {
-  const ref = document.referrer ? new URL(document.referrer) : null;
-  if (ref && ref.origin === location.origin && ref.pathname !== location.pathname) {
-    page.value = ref.pathname;
+// Deep links choose the kind and "where" up front: /feedback?kind=task is the
+// archive's "suggest one" row. Otherwise "where" is the page
+// that linked here, when it's one of ours.
+const params = new URLSearchParams(location.search);
+const kindParam = params.get('kind');
+if (kindParam && [...kind.options].some((o) => o.value === kindParam)) kind.value = kindParam;
+const whereParam = params.get('where');
+if (whereParam) {
+  page.value = whereParam;
+} else if (kind.value !== 'task') {
+  // A task request's "where" is the source link, not one of our pages.
+  try {
+    const ref = document.referrer ? new URL(document.referrer) : null;
+    if (ref && ref.origin === location.origin && ref.pathname !== location.pathname) {
+      page.value = ref.pathname;
+    }
+  } catch {
+    // Malformed referrer — leave the field empty.
   }
-} catch {
-  // Malformed referrer — leave the field empty.
 }
 
 const session = readCachedSession();
 if (session) $('feedback-contact-row').hidden = true;
 
 // Field titles follow the kind: a bug report asks what broke and where, an
-// idea asks what's missing and where it would live.
+// idea asks what's missing and where it would live, a task request asks
+// which comp and where its tracklogs are.
 const COPY = {
   bug: {
     body: 'What happened?',
@@ -54,6 +66,12 @@ const COPY = {
     where: 'Where would it fit?',
     wherePh: 'Page or part of the site, if it applies',
   },
+  task: {
+    body: 'Which comp or task?',
+    bodyPh: 'Comp name / year, and where the tracklogs live (AirScore, Airtribune, xcdemon…)',
+    where: 'Source link',
+    wherePh: 'URL of the comp on its scoring site, if you have it',
+  },
 } as const;
 const applyCopy = (): void => {
   const c = COPY[kind.value as keyof typeof COPY] ?? COPY.bug;
@@ -62,6 +80,9 @@ const applyCopy = (): void => {
   $('feedback-page-label').textContent = c.where;
   page.placeholder = c.wherePh;
   $('feedback-trail-note').hidden = kind.value !== 'bug';
+  // Switching to a task request: a referrer-prefilled site path is not a
+  // source link, so drop it.
+  if (kind.value === 'task' && page.value.startsWith('/')) page.value = '';
 };
 kind.addEventListener('change', applyCopy);
 applyCopy();

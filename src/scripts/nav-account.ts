@@ -4,7 +4,7 @@
 // Runs everywhere, so it deliberately does NOT load supabase-js — it reads the
 // persisted session out of localStorage. See readCachedSession() for why that's
 // safe here.
-import { isConfigured, readCachedSession } from '../lib/supabase';
+import { AUTH_CHANGED_EVENT, STORAGE_KEY, isConfigured, readCachedSession } from '../lib/supabase';
 
 /**
  * (Re)paint the chrome from the cached session. Runs once on every page load;
@@ -49,3 +49,14 @@ export function refreshNavAccount(): void {
 }
 
 refreshNavAccount();
+
+// The paint above is from whatever was in localStorage at load. The session can
+// change underneath it without this page doing anything:
+//  - supabase-js, loaded by some other script on the page, refreshes an expired
+//    token in the background (or exchanges a ?code=) — AUTH_CHANGED_EVENT;
+//  - another tab signs in or out — the storage event (which only fires in
+//    OTHER tabs, so it's no duplicate of the first).
+window.addEventListener(AUTH_CHANGED_EVENT, refreshNavAccount);
+window.addEventListener('storage', (e) => {
+  if (e.key === null || e.key === STORAGE_KEY) refreshNavAccount();
+});

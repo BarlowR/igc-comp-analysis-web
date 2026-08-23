@@ -1,344 +1,224 @@
 ---
-// The landing page IS the archive: every archived comp/day from the build-time
-// manifest, split into a tab per task kind. The upload-your-own analysis lives
-// at /analyze.
+// Landing page: the feature list, one centred column. Each feature is an
+// header that, when it has a screenshot (public/features/), expands to show it. Account-only
+// features carry a small tag instead of living in a second section.
 import Base from '../layouts/Base.astro';
-import manifest from '../archive-manifest.json';
-import { parseTaskKind, TASK_KINDS, TASK_KIND_LABELS, type TaskKind } from '../lib/xctsk';
 
-interface Entry {
-  comp: string;
-  compLabel?: string;
-  day: string;
-  dayLabel?: string;
-  date?: string;
-  title?: string;
-  notes?: string;
-  taskFile: string;
-  igcFiles: string[];
-  /** "xc" (default) or "hike-and-fly" — see src/lib/xctsk.ts TaskKind. */
-  taskKind?: string;
-  /** Unlisted: the day page still builds (URL works), but it's hidden from this index. */
-  hidden?: boolean;
+interface Feature {
+  name: string;
+  /** Screenshot path. Without one the row is a plain header: no dropdown. */
+  img?: string;
+  account?: boolean;
 }
 
-interface CompGroup {
-  comp: string;
-  label: string;
-  days: Entry[];
-  /** Newest day in the comp — what the comp is sorted by, and what it's dated by. */
-  latest: string;
-}
-
-const entries = (manifest as unknown as Entry[]).filter((e) => !e.hidden);
-
-// Grouped by (kind, comp), not by comp alone: a comp is one kind in practice,
-// but keying on the pair means a mixed one lists its own days under each tab
-// instead of landing wholesale in whichever kind its first day happened to be.
-const groups = new Map<TaskKind, Map<string, CompGroup>>(TASK_KINDS.map((k) => [k, new Map()]));
-for (const e of entries) {
-  const byComp = groups.get(parseTaskKind(e.taskKind))!;
-  if (!byComp.has(e.comp)) {
-    byComp.set(e.comp, { comp: e.comp, label: e.compLabel ?? e.comp, days: [], latest: '' });
-  }
-  byComp.get(e.comp)!.days.push(e);
-}
-
-// Newest first, throughout: days within a comp, and comps by their newest day.
-// An undated day sorts to the bottom rather than to 1970.
-const dateOf = (e: Entry): string => e.date ?? '';
-const newestFirst = (a: string, b: string): number => b.localeCompare(a);
-
-const tabs = TASK_KINDS.map((kind) => {
-  const comps = [...groups.get(kind)!.values()];
-  for (const c of comps) {
-    c.days.sort((a, b) => newestFirst(dateOf(a), dateOf(b)) || b.day.localeCompare(a.day));
-    c.latest = dateOf(c.days[0]);
-  }
-  comps.sort((a, b) => newestFirst(a.latest, b.latest) || a.label.localeCompare(b.label));
-  const tasks = comps.reduce((n, c) => n + c.days.length, 0);
-  return { kind, label: TASK_KIND_LABELS[kind], comps, tasks };
-});
-
-// Default to the tab with the most recent task rather than to a fixed kind, so
-// whatever was archived last is what the page opens on.
-const latestOf = (t: (typeof tabs)[number]): string => t.comps[0]?.latest ?? '';
-const active = tabs.reduce((best, t) => (newestFirst(latestOf(t), latestOf(best)) < 0 ? t : best), tabs[0]);
-const anyTasks = tabs.some((t) => t.tasks > 0);
-
-/** "2 tasks · Sep 24–27, 2025" — the comp's own summary line, closed or open. */
-function compMeta(group: CompGroup): string {
-  const dates = group.days.map(dateOf).filter(Boolean);
-  const n = group.days.length;
-  const count = `${n} task${n === 1 ? '' : 's'}`;
-  if (!dates.length) return count;
-  const fmt = (iso: string, withYear: boolean): string =>
-    new Date(`${iso}T12:00:00Z`).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      ...(withYear ? { year: 'numeric' } : {}),
-      timeZone: 'UTC',
-    });
-  const newest = dates[0];
-  const oldest = dates[dates.length - 1];
-  if (newest === oldest) return `${count} · ${fmt(newest, true)}`;
-  // Same month and year reads as "Sep 24–27, 2025"; anything wider spells both out.
-  const sameMonth = newest.slice(0, 7) === oldest.slice(0, 7);
-  const span = sameMonth
-    ? `${fmt(oldest, false)}–${new Date(`${newest}T12:00:00Z`).getUTCDate()}, ${newest.slice(0, 4)}`
-    : `${fmt(oldest, true)} – ${fmt(newest, true)}`;
-  return `${count} · ${span}`;
-}
+const features: Feature[] = [
+  {
+    name: 'Competition Tracklog Static Analysis',
+    img: '/features/analysis.png',
+  },
+  {
+    name: 'Thermalling Quantification',
+    img: '/features/thermalling.png',
+  },
+  {
+    name: 'Time & Altitude Gain/Loss',
+    img: '/features/glide.png',
+  },
+  {
+    name: 'Cross Country & Hike and Fly Competition Archive',
+  },
+  {
+    name: '3D replay',
+    img: '/features/3d.png',
+    account: true,
+  },
+  {
+    name: 'Tracklog Annotations',
+    img: '/features/annotations.png',
+    account: true,
+  },
+  {
+    name: 'Thermal Cloud Visualization',
+    img: '/features/thermal-cloud.png',
+    account: true,
+  },
+  {
+    name: 'Notebooks',
+    img: '/features/notebooks.png',
+    account: true,
+  },
+  {
+    name: 'Save Personal Task Analyses',
+    account: true,
+  },
+];
 ---
 
-<Base title="Outclimb.app">
-  <header class="hero">
+<Base title="Features — Outclimb.app">
+  <header class="hero tour-hero">
     <h1>Outclimb.app</h1>
-    <p>Paragliding Competition Tracklog Analysis</p>
+    <h2>Break down paragliding performance from qualitative into quantitative.</h2>
+    <div class="tour-hero-links">
+      <a class="tour-button" href="/archive">Browse the archive</a>
+      <a class="tour-button secondary" href="/analyze">Analyze a Task</a>
+    </div>
   </header>
 
-  <main>
-    {
-      !anyTasks ? (
-        <section class="card">
-          <p class="archive-empty">
-            No archived analyses yet. Add one with <code>npm run archive</code>.
-          </p>
-        </section>
-      ) : (
-        <section class="card archive">
-          <div class="archive-head">
-            {/* One tab per task kind. The panels are all in the HTML and toggled
-                with [hidden], so the tabs work as soon as the markup lands and a
-                tab switch costs no fetch. */}
-            <div class="tabs" role="tablist" aria-label="Task type">
-              {tabs.map((t) => (
-                <button
-                  type="button"
-                  role="tab"
-                  id={`tab-${t.kind}`}
-                  class="tab"
-                  data-kind={t.kind}
-                  aria-controls={`panel-${t.kind}`}
-                  aria-selected={t.kind === active.kind ? 'true' : 'false'}
-                  tabindex={t.kind === active.kind ? 0 : -1}
-                >
-                  {t.label}
-                  <span class="tab-count">{t.tasks}</span>
-                </button>
-              ))}
-              {/* Account-only: saved analyses filed under "Free Flights".
-                  Ships hidden — scripts/archive-saved.ts reveals it (and fills
-                  the count) only when this account has some. */}
-              <button
-                type="button"
-                role="tab"
-                id="tab-free"
-                class="tab"
-                data-kind="free"
-                aria-controls="panel-free"
-                aria-selected="false"
-                tabindex={-1}
-                hidden
-              >
-                Free Flights
-                <span class="tab-count"></span>
-              </button>
+  <main class="tour">
+    <div class="feature-list">
+      {
+        features.map((f) =>
+          f.img ? (
+            <details class="feature">
+              <summary>
+                <h2>{f.name}</h2>
+                {f.account && <span class="tag">account</span>}
+                <span class="chev" aria-hidden="true" />
+              </summary>
+              <img src={f.img} alt={f.name} loading="lazy" />
+            </details>
+          ) : (
+            <div class="feature feature-static">
+              <h2>{f.name}</h2>
+              {f.account && <span class="tag">account</span>}
             </div>
-
-            {/* Said once for the page rather than on all 23 cards — per-card it
-                cost every title a second line. nav-account.ts unhides it when
-                there's no session, so a signed-out click on ◈ 3D isn't a
-                surprise trip to a sign-in wall. */}
-            <p class="archive-3d-note" data-account-only-note hidden>
-              <span aria-hidden="true">◈</span> 3D replay needs an account —
-              <a href="/account">sign in</a>
-            </p>
-          </div>
-
-          {/* Counterpart panel for the account-only tab above. Also starts
-              hidden from the tab rotation until archive-saved.ts has content
-              for it. */}
-          <div
-            role="tabpanel"
-            id="panel-free"
-            class="tabpanel"
-            aria-labelledby="tab-free"
-            tabindex="0"
-            hidden
-          />
-
-          {tabs.map((t) => (
-            <div
-              role="tabpanel"
-              id={`panel-${t.kind}`}
-              class="tabpanel"
-              aria-labelledby={`tab-${t.kind}`}
-              tabindex="0"
-              hidden={t.kind !== active.kind}
-            >
-              {t.comps.length === 0 ? (
-                <p class="archive-empty">No {t.label.toLowerCase()} tasks archived yet.</p>
-              ) : (
-                t.comps.map((group) => (
-                  /* Native disclosure: keyboard and screen-reader behaviour for
-                     free, and it still works with the tab script unloaded. All
-                     comps land collapsed; each is a click away. */
-                  <details class="archive-comp">
-                    <summary>
-                      {/* Drawn rather than typed: a "›" glyph isn't centred in
-                          its em box, so rotating it to point down lifts it off
-                          the row's centre line. */}
-                      <svg class="comp-chevron" viewBox="0 0 12 12" aria-hidden="true">
-                        <path d="M4.5 2 L8.5 6 L4.5 10" />
-                      </svg>
-                      <span class="comp-name">{group.label}</span>
-                      <span class="comp-meta">{compMeta(group)}</span>
-                    </summary>
-
-                    {/* Your own note on the whole comp — first thing under the
-                        title, above the task links. Ships hidden and empty:
-                        scripts/archive-notes.ts reveals it only when there's a
-                        session, and fills the body in from one query covering
-                        every comp on the page. Inside the <details>, so a
-                        closed comp costs nothing to look at.
-
-                        A comp with no note shows only the button — the editor
-                        is opened on demand, and once open it's the text box and
-                        nothing else. Saving is automatic; there is no button
-                        for it. */}
-                    <section class="comp-notes" data-comp={group.comp} hidden>
-                      <button type="button" class="comp-notes-add">
-                        <span aria-hidden="true">＋</span> Add a note
-                      </button>
-                      <div class="comp-notes-editor" hidden>
-                        <textarea
-                          class="comp-notes-text"
-                          rows="3"
-                          aria-label={`Your notes on ${group.label}`}
-                        ></textarea>
-                        <span class="comp-notes-status" role="status" aria-live="polite"></span>
-                      </div>
-                    </section>
-
-                    <ul class="day-list">
-                      {group.days.map((d) => (
-                        /* Two links per card, so they can't nest: the card face
-                           goes to the 2D analysis (stretched over the whole
-                           card in CSS) and the corner goes to the 3D viewer. */
-                        <li class="day-card">
-                          <a class="day-link" href={`/archive/${group.comp}/${d.day}`}>
-                            <div class="day-title">
-                              <span class="day-name">{d.dayLabel ?? d.day}</span>
-                              {/* Filled in and revealed by scripts/archive-notes.ts
-                                  when this account has notes on the task. */}
-                              <span
-                                class="day-note-mark"
-                                data-day-key={`${group.comp}/${d.day}`}
-                                hidden
-                              />
-                            </div>
-                            <div class="day-meta">
-                              {[d.date, `${d.igcFiles.length} tracks`].filter(Boolean).join(' · ')}
-                            </div>
-                          </a>
-                          <a
-                            class="day-3d"
-                            href={`/archive/${group.comp}/${d.day}/3d`}
-                            title="Fly this task in 3D"
-                            aria-label={`Fly ${d.dayLabel ?? d.day} in 3D`}
-                          >
-                            <span aria-hidden="true">◈</span> 3D
-                          </a>
-                        </li>
-                      ))}
-                    </ul>
-                  </details>
-                ))
-              )}
-            </div>
-          ))}
-        </section>
-      )
-    }
+          ),
+        )
+      }
+    </div>
   </main>
 </Base>
 
-<script>
-  import '../scripts/archive-notes.ts';
-  import '../scripts/archive-saved.ts';
-  import { parseCompHash } from '../lib/links';
-
-  // Tab switching. The panels are already in the DOM — this only moves [hidden]
-  // and the ARIA/roving-tabindex state around, and keeps the kind in the URL
-  // hash so a tab can be linked to (/#hike-and-fly). replaceState, not a real
-  // hash change: the browser would otherwise scroll to the panel and stack a
-  // history entry on every click.
-  //
-  // A [hidden] tab (the account-only Free Flights one before
-  // archive-saved.ts reveals it) stays out of selection and keyboard rotation:
-  // it exists in the markup but not, yet, in the tab order.
-  const tabs = [...document.querySelectorAll<HTMLButtonElement>('.archive .tab')];
-
-  if (tabs.length) {
-    const select = (kind: string, focus = false): void => {
-      const target = tabs.find((t) => t.dataset.kind === kind && !t.hidden);
-      if (!target) return;
-      for (const tab of tabs) {
-        const on = tab === target;
-        tab.setAttribute('aria-selected', String(on));
-        tab.tabIndex = on ? 0 : -1;
-        document.getElementById(`panel-${tab.dataset.kind}`)?.toggleAttribute('hidden', !on);
-      }
-      if (focus) target.focus();
-      history.replaceState(null, '', `#${kind}`);
-    };
-
-    for (const tab of tabs) {
-      tab.addEventListener('click', () => select(tab.dataset.kind ?? ''));
-    }
-
-    // Standard tablist keys: arrows wrap, Home/End jump to the ends. Rotation
-    // runs over the visible tabs, re-read per keystroke because
-    // archive-saved.ts can reveal one after load.
-    document.querySelector('.archive .tabs')?.addEventListener('keydown', (event) => {
-      const e = event as KeyboardEvent;
-      const visible = tabs.filter((t) => !t.hidden);
-      if (!visible.length) return;
-      const step = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
-      let next = -1;
-      if (step) {
-        next = (visible.findIndex((t) => t.tabIndex === 0) + step + visible.length) % visible.length;
-      } else if (e.key === 'Home') next = 0;
-      else if (e.key === 'End') next = visible.length - 1;
-      if (next < 0) return;
-      e.preventDefault();
-      select(visible[next].dataset.kind ?? '', true);
-    });
-
-    // Honour a linked tab (/#hike-and-fly), now and on back/forward. A comp
-    // link (/#c/<comp>, from a notebook note) instead switches to the comp's
-    // tab, opens its disclosure row and scrolls it into view.
-    const fromHash = (): void => {
-      const compLink = parseCompHash(location.hash);
-      if (compLink) {
-        const notes = document.querySelector(`.comp-notes[data-comp="${CSS.escape(compLink)}"]`);
-        const details = notes?.closest('details');
-        const panel = notes?.closest<HTMLElement>('.tabpanel');
-        if (!details || !panel) return;
-        select(panel.id.replace('panel-', ''));
-        details.open = true;
-        details.scrollIntoView({ block: 'start', behavior: 'smooth' });
-        return;
-      }
-      const kind = location.hash.slice(1);
-      if (kind && tabs.some((t) => t.dataset.kind === kind && !t.hidden)) select(kind);
-    };
-    fromHash();
-    window.addEventListener('hashchange', fromHash);
-
-    // archive-saved.ts announces when it reveals the account-only tab; a hash
-    // linking to it (/#free) can only be honoured after that.
-    window.addEventListener('archive-saved:revealed', fromHash);
+<style>
+  .tour-hero {
+    padding-bottom: 2.5rem;
   }
-</script>
+
+  .tour-hero h1 {
+    max-width: 30ch;
+    margin-inline: auto;
+    font-size: clamp(2rem, 4.5vw, 3rem);
+    line-height: 1.15;
+    text-wrap: balance;
+  }
+
+  /* The tagline: the h1's face, smaller. */
+  .tour-hero h2 {
+    margin: 0.25rem auto 0;
+    max-width: 36ch;
+    font-size: clamp(1.2rem, 2.4vw, 1.6rem);
+    font-weight: 100;
+    letter-spacing: 0.01em;
+    line-height: 1.3;
+    color: var(--muted);
+    text-wrap: balance;
+  }
+
+  .tour-hero-links {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.75rem;
+    margin-top: 1.5rem;
+  }
+
+  .tour {
+    max-width: 720px;
+  }
+
+  .feature {
+    border-bottom: 1px solid var(--border);
+  }
+
+  .feature:last-child {
+    border-bottom: 0;
+  }
+
+  .feature summary,
+  .feature-static {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.8rem 0;
+    cursor: pointer;
+    list-style: none;
+  }
+
+  .feature-static {
+    cursor: default;
+  }
+
+  .feature summary::-webkit-details-marker {
+    display: none;
+  }
+
+  /* The h1's face again, one step smaller than the tagline's. */
+  .feature h2 {
+    flex: 1;
+    margin: 0;
+    font-size: clamp(1.15rem, 2vw, 1.35rem);
+    font-weight: 100;
+    letter-spacing: 0.01em;
+    line-height: 1.3;
+  }
+
+  .chev {
+    flex: none;
+    width: 0.5rem;
+    height: 0.5rem;
+    border-right: 1px solid var(--muted);
+    border-bottom: 1px solid var(--muted);
+    transform: rotate(45deg);
+    transition: transform 0.15s;
+  }
+
+  .feature[open] .chev {
+    transform: rotate(-135deg);
+  }
+
+  .feature img {
+    display: block;
+    width: 100%;
+    margin: 0 0 1.25rem;
+    border-radius: 8px;
+    border: 1px solid var(--border-strong);
+    box-shadow: 0 1px 3px rgba(20, 12, 12, 0.08);
+  }
+
+  .tag {
+    flex: none;
+    font-size: 0.7rem;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    border: 1px solid currentColor;
+    border-radius: 999px;
+    padding: 0.1rem 0.5rem;
+  }
+
+  .tour-button {
+    display: inline-block;
+    padding: 0.6rem 1.3rem;
+    border-radius: 9px;
+    background: var(--accent);
+    color: #fff;
+    font-weight: 400;
+    text-decoration: none;
+    border: 1px solid var(--accent-strong);
+  }
+
+  .tour-button:hover {
+    background: var(--accent-strong);
+  }
+
+  .tour-button.secondary {
+    background: var(--panel);
+    color: var(--text);
+    border-color: var(--border-strong);
+  }
+
+  .tour-button.secondary:hover {
+    background: var(--panel-2);
+  }
+</style>

@@ -45,8 +45,10 @@ jobs:
           }
           bugs=$(fetch bug) || { echo "::error::Query failed — is migration 0012 applied, and are the secrets right?"; exit 1; }
           ideas=$(fetch idea) || { echo "::error::Query failed — is migration 0012 applied, and are the secrets right?"; exit 1; }
+          tasks=$(fetch task) || { echo "::error::Query failed — is migration 0013 applied, and are the secrets right?"; exit 1; }
           n_bugs=$(jq length <<<"$bugs")
           n_ideas=$(jq length <<<"$ideas")
+          n_tasks=$(jq length <<<"$tasks")
 
           # One markdown table row per report: filed time, page, body with
           # newlines/pipes flattened and cut to 160 chars. No contact column.
@@ -54,7 +56,7 @@ jobs:
           {
             echo "## Feedback gate"
             echo
-            echo "**${n_bugs} unresolved bug(s) · ${n_ideas} open idea(s)**"
+            echo "**${n_bugs} unresolved bug(s) · ${n_ideas} open idea(s) · ${n_tasks} task request(s)**"
             if [ "$n_bugs" -gt 0 ]; then
               echo
               echo "### 🐛 Bugs — failing the gate"
@@ -71,6 +73,14 @@ jobs:
               echo "|---|---|---|"
               jq -r "$row" <<<"$ideas"
             fi
+            if [ "$n_tasks" -gt 0 ]; then
+              echo
+              echo "### 🗂 Task requests — informational"
+              echo
+              echo "| filed (UTC) | source | request |"
+              echo "|---|---|---|"
+              jq -r "$row" <<<"$tasks"
+            fi
             echo
             echo 'Contact details (if any) are in the table, not shown here. Resolve with: `update public.feedback set resolved_at = now() where id = …;`'
           } >> "$GITHUB_STEP_SUMMARY"
@@ -79,4 +89,4 @@ jobs:
             echo "::error::$n_bugs unresolved bug report(s) in public.feedback — see the job summary."
             exit 1
           fi
-          echo "No unresolved bugs. $n_ideas idea(s) open."
+          echo "No unresolved bugs. $n_ideas idea(s) and $n_tasks task request(s) open."
