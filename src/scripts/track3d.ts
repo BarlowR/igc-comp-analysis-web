@@ -1024,7 +1024,7 @@ async function enableTerrain(viewer: Cesium.Viewer, statusEl: HTMLElement, onTer
     // World terrain.
     viewer.scene.setTerrain(new Cesium.Terrain(Cesium.createWorldTerrainAsync()));
     onTerrain(); // bump the turnpoint columns to their terrain opacity
-    statusEl.textContent = 'Cesium Ion: satellite imagery + world terrain enabled.';
+    statusEl.textContent = 'Satellite imagery & terrain loaded.';
   } catch (err) {
     statusEl.textContent = `Cesium Ion failed: ${(err as Error).message}`;
   }

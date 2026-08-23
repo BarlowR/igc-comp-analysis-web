@@ -7,8 +7,8 @@
 
 // ---- builders ---------------------------------------------------------------
 
-/** The archive index, opened and scrolled to one comp's row (index.astro). */
-export const archiveCompUrl = (comp: string): string => `/#c/${comp}`;
+/** The archive index, opened and scrolled to one comp's row (archive/index.astro). */
+export const archiveCompUrl = (comp: string): string => `/archive#c/${comp}`;
 
 /** An archived task's 2D page. */
 export const archiveTaskUrl = (comp: string, day: string): string => `/archive/${comp}/${day}`;

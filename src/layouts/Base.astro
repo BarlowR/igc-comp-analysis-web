@@ -13,9 +13,9 @@ const {
 } = Astro.props;
 
 const path = Astro.url.pathname;
-// The archive is the landing page, so "/" and the /archive/… day pages are all
-// one Archive section; Analyze is its own page now.
-const isArchive = path === '/' || path.startsWith('/archive');
+// The archive listing and the /archive/… day pages are all
+// one Archive section; "/" is the landing page.
+const isArchive = path.startsWith('/archive');
 const isAnalyze = path.startsWith('/analyze');
 const isNotebooks = path.startsWith('/notebooks');
 const isFeedback = path.startsWith('/feedback');
@@ -40,7 +40,7 @@ const is3d = /\/3d\/?$/.test(path);
   </head>
   <body>
     <nav class="topnav">
-      <a href="/" class:list={[{ active: isArchive }]}>Archive</a>
+      <a href="/archive" class:list={[{ active: isArchive }]}>Archive</a>
       <a href="/analyze" class:list={[{ active: isAnalyze }]}>Analyze</a>
       {/* Account-only: nav-account.ts reveals it when a session is stored.
           Ships hidden so signed-out visitors never see a tab that would only

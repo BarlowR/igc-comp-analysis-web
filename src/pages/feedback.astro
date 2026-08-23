@@ -20,14 +20,11 @@ import Base from '../layouts/Base.astro';
     </section>
 
     <section class="card account-card" id="feedback-card">
-      <p class="field-hint">
-        Found a bug, or want something the site doesn't do? A couple of sentences is plenty.
-      </p>
       <form id="feedback-form" class="account-form">
-        <label class="field-label" for="feedback-kind">What is it?</label>
         <select id="feedback-kind" name="kind">
-          <option value="bug">A bug — something's broken</option>
-          <option value="idea">An idea — a feature request</option>
+          <option value="bug">Bug Report</option>
+          <option value="idea">Feature Request</option>
+          <option value="task">Comp/Task Request</option>
         </select>
 
         {/* Titles and placeholders track the kind selector — feedback.ts swaps them. */}
@@ -63,8 +60,7 @@ import Base from '../layouts/Base.astro';
       {/* Bug reports only — feedback.ts hides it for ideas. */}
       <p id="feedback-trail-note" class="field-hint">
         To help debugging, a bug report includes your browser type and your last few
-        actions on this visit (pages, clicks, and any script errors). Nothing is
-        collected until you press Send.
+        actions on this visit (pages, clicks, and any script errors).
       </p>
       <p id="feedback-status" class="form-status" role="status" aria-live="polite"></p>
     </section>

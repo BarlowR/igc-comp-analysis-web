@@ -19,6 +19,12 @@ const SUPABASE_ANON_KEY = import.meta.env.PUBLIC_SUPABASE_ANON_KEY as string | u
  */
 export const STORAGE_KEY = 'igc-comp-auth';
 
+/**
+ * Fired on window whenever the supabase-js client (if loaded) reports an auth
+ * state change. Listeners re-read the stored session; the event carries nothing.
+ */
+export const AUTH_CHANGED_EVENT = 'igc-comp-auth-changed';
+
 /** False when the env vars are missing — the UI degrades to "accounts are off". */
 export const isConfigured = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
 
@@ -38,19 +44,28 @@ export function getSupabase(): Promise<SupabaseClient> {
       clientPromise = null;
       throw err;
     })
-    .then(({ createClient }) =>
-      createClient(SUPABASE_URL!, SUPABASE_ANON_KEY!, {
-      auth: {
-        storageKey: STORAGE_KEY,
-        flowType: 'pkce',
-        persistSession: true,
-        autoRefreshToken: true,
-        // Magic-link redirects come back with ?code=…; this exchanges it for a
-        // session on whichever page the user lands on.
-        detectSessionInUrl: true,
-      },
-    }),
-  );
+    .then(({ createClient }) => {
+      const client = createClient(SUPABASE_URL!, SUPABASE_ANON_KEY!, {
+        auth: {
+          storageKey: STORAGE_KEY,
+          flowType: 'pkce',
+          persistSession: true,
+          autoRefreshToken: true,
+          // Magic-link redirects come back with ?code=…; this exchanges it for a
+          // session on whichever page the user lands on.
+          detectSessionInUrl: true,
+        },
+      });
+      // Any session change the SDK makes on its own — a background token
+      // refresh reviving an expired session, a ?code= exchange, a sign-out —
+      // is announced as a DOM event so chrome that only reads localStorage
+      // (the nav chip) can repaint. Without this, a page that loaded with a
+      // stale token kept saying "Sign in" after the SDK had signed it in.
+      client.auth.onAuthStateChange(() => {
+        window.dispatchEvent(new Event(AUTH_CHANGED_EVENT));
+      });
+      return client;
+    });
   return clientPromise;
 }
 
