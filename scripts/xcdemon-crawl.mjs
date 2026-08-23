@@ -441,6 +441,9 @@ function main() {
         '--title', title,
         '--utc-offset', String(offMin),
         ...(taskKind === 'xc' ? [] : ['--kind', taskKind]),
+        // xcdemon comps fly rented trackers: headers carry tracker artifacts
+        // ("Dummy", "Spare 5"), the filenames carry the real pilots.
+        '--name-source', 'filename',
       ];
       execFileSync('node', archiveArgs, { stdio: 'inherit' });
       imported++;

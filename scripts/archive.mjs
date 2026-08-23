@@ -106,6 +106,10 @@ const meta = {
   ...(args.notes ? { notes: args.notes } : {}),
   ...(args['utc-offset'] !== undefined ? { utcOffsetMinutes: Number(args['utc-offset']) } : {}),
   ...(taskKind !== DEFAULT_TASK_KIND ? { taskKind } : {}),
+  // --name-source filename: pilot names come from the filenames, not the IGC
+  // headers — for comps on shared/rented trackers whose headers carry tracker
+  // artifacts ("Dummy", "Spare 5"). See NameSource in src/lib/competition.ts.
+  ...(args['name-source'] === 'filename' ? { nameSource: 'filename' } : {}),
   taskFile: 'task.xctsk',
   igcFiles,
 };

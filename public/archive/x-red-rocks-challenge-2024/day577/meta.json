@@ -9,20 +9,12 @@
   "taskKind": "hike-and-fly",
   "taskFile": "task.xctsk",
   "igcFiles": [
-    "Andrew Karnowski.1072.213.igc",
     "Boaz Ramos (Bala).1063.222.igc",
     "Brian Morris.1078.216.igc",
     "Bruno Perthus.1086.225.igc",
-    "Carolyn Reuman.302.202.igc",
     "Chris Mann.1075.215.igc",
-    "Damon Hardwick.930.203.igc",
-    "Didier C. Torres.1070.211.igc",
-    "Francois Appere.1079.221.igc",
-    "Jake Rendina.824.206.igc",
     "James Willis .1074.214.igc",
     "Jeff Wayland.1064.220.igc",
-    "Jeffrey Williams.1085.224.igc",
-    "Joey villeneuve .1071.212.igc",
     "Keaton Blair.1066.218.igc",
     "Kevin Wright.1069.210.igc",
     "Kirby Ryan.1055.205.igc",
@@ -31,7 +23,7 @@
     "Muuo Wambua.981.208.igc",
     "Patrick Switzer.1067.219.igc",
     "Robert Barlow.961.204.igc",
-    "Rodney Lyons.1017.207.igc",
     "Skyler Pinion.1065.209.igc"
-  ]
+  ],
+  "nameSource": "filename"
 }

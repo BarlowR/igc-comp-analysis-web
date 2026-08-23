@@ -18,6 +18,8 @@ interface Entry {
   utcOffsetMinutes?: number | null;
   /** "xc" (default) or "hike-and-fly" — set by `npm run archive -- --kind`. */
   taskKind?: string;
+  /** "header" (default) or "filename" — see NameSource in lib/competition. */
+  nameSource?: string;
 }
 
 export const getStaticPaths: GetStaticPaths = () =>
@@ -34,6 +36,7 @@ export const GET: APIRoute = ({ props }) => {
     readFileSync(join(dir, entry.taskFile), 'utf8'),
     entry.utcOffsetMinutes ?? null,
     parseTaskKind(entry.taskKind),
+    entry.nameSource === 'filename' ? 'filename' : 'header',
   );
   for (const name of entry.igcFiles) {
     try {

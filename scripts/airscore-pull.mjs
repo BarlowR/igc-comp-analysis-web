@@ -205,8 +205,10 @@ function main() {
   ];
   if (taskIds.length === 0) die(`no tasks found on ${HOST}/competition/${COMP_ID}`);
 
-  const wanted = args.onlyTask.length ? taskIds.filter((id) => args.onlyTask.includes(id)) : taskIds;
-  if (wanted.length === 0) die(`--only-task ${args.onlyTask.join(',')} matched none of: ${taskIds.join(', ')}`);
+  // --only-task ids are taken as given, not intersected with the comp page:
+  // some tasks (Red Rocks 2024 tasks 2 and 4) are reachable by id yet never
+  // linked from either comp-page variant.
+  const wanted = args.onlyTask.length ? args.onlyTask : taskIds;
 
   // Fetch each task's result page up front, skipping tasks that aren't scored
   // yet (their page has no populate_task blob). This also gives us the comp name.
@@ -216,8 +218,19 @@ function main() {
     try {
       data = extractTaskData(getText(`${HOST}/task_result/${taskId}`));
     } catch (e) {
-      console.warn(`  ! skipping task ${taskId}: ${e.message}`);
-      continue;
+      // Unscored tasks have no populate_task blob, but /_get_livetracking/<id>
+      // serves the same {info, route} JSON (plus a leaderboard we ignore), and
+      // the igc zip still exists — so a task that flew but was never formally
+      // scored (e.g. Red Rocks 2024's single task) still imports.
+      try {
+        const live = JSON.parse(getText(`${HOST}/_get_livetracking/${taskId}`));
+        if (!live?.info || !live?.route) throw new Error('no info/route');
+        data = live;
+        console.warn(`  ~ task ${taskId}: no result page, using livetracking data`);
+      } catch {
+        console.warn(`  ! skipping task ${taskId}: ${e.message}`);
+        continue;
+      }
     }
     tasks.push({ taskId, data });
   }

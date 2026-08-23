@@ -26,6 +26,85 @@ export function haversine(lat1: number, lon1: number, lat2: number, lon2: number
   return c * EARTH_RADIUS_M;
 }
 
+// WGS84 ellipsoid, for the near-cylinder-boundary checks in insideCylinder().
+const WGS84_A = 6378137;
+const WGS84_F = 1 / 298.257223563;
+const WGS84_B = WGS84_A * (1 - WGS84_F);
+
+/** WGS84 ellipsoid distance in metres (Vincenty inverse). */
+export function vincenty(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const L = (lon2 - lon1) * DEGREES_TO_RADS;
+  const U1 = Math.atan((1 - WGS84_F) * Math.tan(lat1 * DEGREES_TO_RADS));
+  const U2 = Math.atan((1 - WGS84_F) * Math.tan(lat2 * DEGREES_TO_RADS));
+  const sinU1 = Math.sin(U1);
+  const cosU1 = Math.cos(U1);
+  const sinU2 = Math.sin(U2);
+  const cosU2 = Math.cos(U2);
+
+  let lambda = L;
+  let sinSigma = 0;
+  let cosSigma = 1;
+  let sigma = 0;
+  let cosSqAlpha = 1;
+  let cos2SigmaM = 0;
+  for (let iter = 0; iter < 100; iter++) {
+    const sinLambda = Math.sin(lambda);
+    const cosLambda = Math.cos(lambda);
+    sinSigma = Math.hypot(cosU2 * sinLambda, cosU1 * sinU2 - sinU1 * cosU2 * cosLambda);
+    if (sinSigma === 0) return 0; // coincident points
+    cosSigma = sinU1 * sinU2 + cosU1 * cosU2 * cosLambda;
+    sigma = Math.atan2(sinSigma, cosSigma);
+    const sinAlpha = (cosU1 * cosU2 * sinLambda) / sinSigma;
+    cosSqAlpha = 1 - sinAlpha * sinAlpha;
+    cos2SigmaM = cosSqAlpha === 0 ? 0 : cosSigma - (2 * sinU1 * sinU2) / cosSqAlpha;
+    const C = (WGS84_F / 16) * cosSqAlpha * (4 + WGS84_F * (4 - 3 * cosSqAlpha));
+    const prev = lambda;
+    lambda =
+      L +
+      (1 - C) *
+        WGS84_F *
+        sinAlpha *
+        (sigma + C * sinSigma * (cos2SigmaM + C * cosSigma * (-1 + 2 * cos2SigmaM ** 2)));
+    if (Math.abs(lambda - prev) < 1e-12) break;
+  }
+
+  const uSq = (cosSqAlpha * (WGS84_A ** 2 - WGS84_B ** 2)) / WGS84_B ** 2;
+  const A = 1 + (uSq / 16384) * (4096 + uSq * (-768 + uSq * (320 - 175 * uSq)));
+  const B = (uSq / 1024) * (256 + uSq * (-128 + uSq * (74 - 47 * uSq)));
+  const deltaSigma =
+    B *
+    sinSigma *
+    (cos2SigmaM +
+      (B / 4) *
+        (cosSigma * (-1 + 2 * cos2SigmaM ** 2) -
+          (B / 6) * cos2SigmaM * (-3 + 4 * sinSigma ** 2) * (-3 + 4 * cos2SigmaM ** 2)));
+  return WGS84_B * A * (sigma - deltaSigma);
+}
+
+/**
+ * Turnpoint cylinder test as official scoring performs it: cylinders carry a
+ * tolerance band of 0.1% of the radius (min 5 m — the GAP rule), and distances
+ * are measured on the WGS84 ellipsoid. Pilots' instruments direct them to shave
+ * big cylinders to within metres of the boundary, so on a 44 km cylinder the
+ * sphere-vs-ellipsoid disagreement (~0.1% of the distance) plus a strict
+ * `<= radius` puts a real share of the field "outside" a cylinder they tagged.
+ * The ellipsoid distance costs ~20x the spherical one, so it is only consulted
+ * inside the band where the two can disagree.
+ */
+export function insideCylinder(
+  lat: number,
+  lon: number,
+  cLat: number,
+  cLon: number,
+  radius: number,
+): boolean {
+  const tol = Math.max(5, radius * 0.001);
+  const d = haversine(lat, lon, cLat, cLon);
+  const band = radius * 0.006 + tol;
+  if (Math.abs(d - radius) > band) return d <= radius + tol;
+  return vincenty(lat, lon, cLat, cLon) <= radius + tol;
+}
+
 /** pandas Series.diff(periods): out[i] = x[i] - x[i-periods], NaN for the first `periods`. */
 export function diff(x: number[], periods = 1): number[] {
   const out = new Array<number>(x.length);

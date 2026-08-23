@@ -20,13 +20,27 @@ export function nameFromFile(filename: string): string {
   return (
     filename
       .replace(/\.igc$/i, '')
-      .replace(/_\d{4}-\d{2}-\d{2}.*$/, '') // strip trailing date/id segment
+      .replace(/^LiveTrack /, '')
+      .replace(/_\d{4}-\d{2}-\d{2}.*$/, '') // strip trailing date/id segment (airscore style)
+      // strip trailing dot-segments of device ids, timestamps, comp numbers and
+      // [CIVLID]-style placeholders (LiveTrack and xcdemon styles)
+      .replace(/(\.(\d[\d-]*|\[[A-Z]+\]))+$/, '')
       .replace(/_/g, ' ')
       .replace(/\b\w/g, (c) => c.toUpperCase())
       .trim() || filename
   );
 }
-import { haversine, optimizeTaskRoute } from './math';
+
+/**
+ * Where a pilot's displayed name comes from. The default trusts the IGC header
+ * (a pilot-owned instrument states its owner). Comps flown on rented/shared
+ * trackers — the xcdemon crawls, chelan-us-open-2024 day1 — carry tracker
+ * artifacts in the header ("Dummy", "Spare 5", a bare tracker number) while the
+ * organiser-assigned filename holds the real pilot, so those days say
+ * `"nameSource": "filename"` in meta.json.
+ */
+export type NameSource = 'header' | 'filename';
+import { insideCylinder, optimizeTaskRoute } from './math';
 
 /**
  * Version of the analysis engine's OUTPUT, for cached results. A saved comp
@@ -41,8 +55,13 @@ import { haversine, optimizeTaskRoute } from './math';
  * 2: the payload gained `map.route` and `timeToGo.par` (results-codec.ts packs
  *    it for the wire); caches from 1 lack both, so their maps draw no optimised
  *    route and their Time Lost plots no par line until a recompute.
+ *
+ * 3: scoring changed — turnpoint cylinders gained the GAP tolerance (0.1%,
+ *    min 5 m) with a WGS84 check near the boundary, and the comp window now
+ *    ends at the detected landing so retrieve drives no longer count as task
+ *    progress. Completion flags and comp_* stats can differ from version 2.
  */
-export const ANALYSIS_VERSION = 2;
+export const ANALYSIS_VERSION = 3;
 
 export type GradientDir = 'least_positive' | 'most_positive' | 'most_negative' | null;
 
@@ -365,15 +384,18 @@ export class Competition {
   /** XC comp, hike and fly, or free — see xctsk.ts `TaskKind`. Chooses the
    * metric set and whether the par/Time Lost model runs at all. */
   kind: TaskKind;
+  nameSource: NameSource;
 
   constructor(
     taskText: string | null,
     utcOffsetMinutes: number | null = null,
     kind: TaskKind = DEFAULT_TASK_KIND,
+    nameSource: NameSource = 'header',
   ) {
     this.task = taskText === null ? null : parseXcTask(taskText);
     this.utcOffsetMinutes = utcOffsetMinutes;
     this.kind = kind;
+    this.nameSource = nameSource;
   }
 
   /**
@@ -423,10 +445,13 @@ export class Competition {
     const flight = new IgcFlight(igcText, fallbackName);
     if (this.task) flight.buildCompMetrics(this.task);
     else flight.buildFreeMetrics();
+    // On shared-tracker comps the header carries the tracker, not the pilot —
+    // the caller's filename-derived name is the true one (see NameSource).
+    const pilotName = this.nameSource === 'filename' ? fallbackName : flight.pilotName;
     const row: PilotRow = {
-      name: flight.pilotName,
+      name: pilotName,
       completed: flight.stats.completed === true,
-      stats: { ...flight.stats, name: flight.pilotName as unknown as number },
+      stats: { ...flight.stats, name: pilotName as unknown as number },
       startGateMs: flight.startGateMs,
       // Crop the displayed track to [start gate − 15 min, end] so the map and
       // altitude plot aren't dominated by ground time: end at the goal crossing
@@ -801,8 +826,10 @@ function goalCrossingMs(flight: IgcFlight, task: XcTask, fromMs: number): number
   const goal = task.turnpoints[task.turnpoints.length - 1];
   if (!goal) return null;
   const { lat, lon, timeMs } = flight.df;
+  const endMs = flight.landingMs ?? Infinity; // driving into goal doesn't count
   for (let i = timeMs.findIndex((t) => t >= fromMs); i >= 0 && i < timeMs.length; i++) {
-    if (haversine(lat[i], lon[i], goal.lat, goal.lon) <= goal.radius) return timeMs[i];
+    if (timeMs[i] > endMs) break;
+    if (insideCylinder(lat[i], lon[i], goal.lat, goal.lon, goal.radius)) return timeMs[i];
   }
   return null;
 }
