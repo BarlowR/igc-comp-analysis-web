@@ -2,14 +2,19 @@
 /**
  * Pull a task + pilot tracks from Flymaster live tracking into the archive.
  *
- *   node scripts/flymaster-pull.mjs --group 8002 --task-id 1438 --comp red-rocks-2026
+ *   node scripts/flymaster-pull.mjs --group 8003 --comp red-rocks-pre-srs-2026
  *   node scripts/flymaster-pull.mjs --group 8002 --task-id 1438 --task-id 1442 --dry
+ *   node scripts/flymaster-pull.mjs --group 8003 --task-id 1440 --only-pilot 66 --out ./rb
  *
- * Flymaster (lt.flymaster.net) scores comps that publish a public results
- * page per task, e.g.
+ * Flymaster (lt.flymaster.net) scores comps that publish a public front page
+ * per group and a results page per task, e.g.
+ *   https://lt.flymaster.net/bsCompetitionFrontPage.php?idgroup=8002
  *   https://lt.flymaster.net/bsTaskResultsFiltered.php?idgroup=8002&taskId=1438
- * The group's task list (bsGetTasks.php) needs a login, so each task id is
- * passed by hand — copy it from the results URL. No login for the rest:
+ * No login needed:
+ *   - GET  bsCompetitionFrontPage.php?idgroup=
+ *                                 -> one card per scored task, linking to
+ *                                    its results page (that's where the
+ *                                    taskIds come from when none is given).
  *   - GET  bsTaskResultsFiltered.php?idgroup=&taskId=
  *                                 -> results HTML: comp title, task name/date,
  *                                    one row per pilot with a
@@ -39,8 +44,12 @@
  *
  * Flags:
  *   --group <id>      (required) Flymaster idgroup
- *   --task-id <id>    (required, repeatable) Flymaster taskId
- *   --comp <slug>     (required) archive comp slug, e.g. red-rocks-2026
+ *   --task-id <id>    Flymaster taskId (repeatable; default: every task on
+ *                     the group's front page, oldest first)
+ *   --comp <slug>     archive comp slug, e.g. red-rocks-2026 (required
+ *                     unless --out)
+ *   --only-pilot <id> import just this compe_id (repeatable)
+ *   --out <dir>       write task.xctsk + the IGCs here instead of archiving
  *   --comp-label <s>  override the comp label (default: the page's <h1>)
  *   --day <slug>      archive day slug (default: day<N> from "Task N")
  *   --kind <k>        task kind passed to archive.mjs (default xc)
@@ -49,7 +58,7 @@
  *   --keep-staging    don't delete the temp download dir (for debugging)
  */
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -60,7 +69,7 @@ const DEFAULT_HOST = 'https://lt.flymaster.net';
 // ---- args ------------------------------------------------------------------
 
 function parseArgs(argv) {
-  const out = { taskIds: [] };
+  const out = { taskIds: [], onlyPilots: [] };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (!a.startsWith('--')) continue;
@@ -71,6 +80,7 @@ function parseArgs(argv) {
     }
     const val = argv[++i];
     if (key === 'task-id') out.taskIds.push(String(val));
+    else if (key === 'only-pilot') out.onlyPilots.push(String(val));
     else out[key] = val;
   }
   return out;
@@ -83,8 +93,7 @@ function die(msg) {
 
 const args = parseArgs(process.argv.slice(2));
 if (!args.group) die('--group <idgroup> is required (from the results URL).');
-if (args.taskIds.length === 0) die('--task-id <taskId> is required (from the results URL).');
-if (!args.comp) die('--comp <slug> is required (e.g. --comp red-rocks-2026).');
+if (!args.comp && !args.out) die('--comp <slug> is required (e.g. --comp red-rocks-2026), or --out <dir>.');
 if (args.day && args.taskIds.length > 1) die('--day only makes sense with a single --task-id.');
 const HOST = (args.host ?? DEFAULT_HOST).replace(/\/$/, '');
 
@@ -180,6 +189,15 @@ function parseUtcOffsetSeconds(html) {
   const m = html.match(/utc_offset\s*=\s*(-?\d+)/);
   if (!m) throw new Error('no utc_offset on the live page');
   return Number(m[1]);
+}
+
+/** Front page HTML -> taskIds in page order (newest first), de-duplicated. */
+function parseFrontPageTaskIds(html) {
+  const ids = [];
+  for (const m of html.matchAll(/bsTaskResultsFiltered\.php\?idgroup=\d+&(?:amp;)?taskId=(\d+)"/g)) {
+    if (!ids.includes(m[1])) ids.push(m[1]);
+  }
+  return ids;
 }
 
 // ---- reconstruct .xctsk from bsGetTaskGeo ---------------------------------
@@ -317,8 +335,18 @@ function main() {
   const utcOffsetSec = parseUtcOffsetSeconds(getText(`${HOST}/bs.php?grp=${args.group}`));
   console.log(`Group ${args.group}: utc_offset ${utcOffsetSec / 3600} h`);
 
+  let taskIds = args.taskIds;
+  if (taskIds.length === 0) {
+    // The front page lists newest first; import oldest first so day numbering reads naturally.
+    taskIds = parseFrontPageTaskIds(
+      getText(`${HOST}/bsCompetitionFrontPage.php?idgroup=${args.group}`),
+    ).reverse();
+    if (taskIds.length === 0) die(`no scored tasks on the front page of group ${args.group}`);
+    console.log(`  tasks on the front page: ${taskIds.join(', ')}`);
+  }
+
   let fallbackNum = 0;
-  for (const taskId of args.taskIds) {
+  for (const taskId of taskIds) {
     const page = parseResultsPage(
       getText(`${HOST}/bsTaskResultsFiltered.php?idgroup=${args.group}&taskId=${taskId}`),
     );
@@ -344,18 +372,28 @@ function main() {
     );
     if (!page.date) throw new Error('could not read the task date from the results page');
 
+    const pilots = args.onlyPilots.length
+      ? page.pilots.filter((p) => args.onlyPilots.includes(p.id))
+      : page.pilots;
+    if (pilots.length === 0)
+      die(`--only-pilot ${args.onlyPilots.join(',')} matched none of the ${page.pilots.length} pilots`);
+
     if (args.dry) {
-      console.log(`    [dry] would import -> public/archive/${args.comp}/${day}/`);
+      console.log(
+        `    [dry] would write ${pilots.length} tracks -> ${args.out ?? `public/archive/${args.comp}/${day}/`}`,
+      );
       continue;
     }
 
-    const staging = mkdtempSync(join(tmpdir(), `flymaster-${taskId}-`));
+    const staging = args.out
+      ? (mkdirSync(args.out, { recursive: true }), args.out)
+      : mkdtempSync(join(tmpdir(), `flymaster-${taskId}-`));
     try {
       const taskPath = join(staging, 'task.xctsk');
       writeFileSync(taskPath, JSON.stringify(xctsk));
 
       let written = 0;
-      for (const pilot of page.pilots) {
+      for (const pilot of pilots) {
         const track = postJson('bsGetPilotTrack.php', {
           idgroup: args.group,
           taskId,
@@ -368,10 +406,14 @@ function main() {
         }
         writeFileSync(join(staging, `${slug(pilot.name)}_${page.date}.${pilot.id}.igc`), igc);
         written++;
-        process.stdout.write(`\r    tracks: ${written}/${page.pilots.length}`);
+        process.stdout.write(`\r    tracks: ${written}/${pilots.length}`);
       }
       process.stdout.write('\n');
       if (written === 0) throw new Error('no pilot had a track');
+      if (args.out) {
+        console.log(`    wrote task.xctsk + ${written} IGCs -> ${args.out}`);
+        continue;
+      }
 
       const archiveArgs = [
         join(ROOT, 'scripts', 'archive.mjs'),
@@ -388,7 +430,7 @@ function main() {
       if (args.kind) archiveArgs.push('--kind', args.kind);
       execFileSync('node', archiveArgs, { stdio: 'inherit' });
     } finally {
-      if (!args['keep-staging']) rmSync(staging, { recursive: true, force: true });
+      if (!args.out && !args['keep-staging']) rmSync(staging, { recursive: true, force: true });
     }
   }
 
