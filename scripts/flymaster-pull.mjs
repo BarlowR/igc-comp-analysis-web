@@ -106,8 +106,9 @@ const sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 
 const REQUEST_GAP_MS = 1500;
 // Backoff after a failed attempt. The server also now and then closes a
 // response early ("curl: (18) transfer closed with outstanding read data
-// remaining"), so every request gets a few attempts.
-const RETRY_WAIT_MS = [2000, 5000, 15000, 30000, 60000];
+// remaining"), so every request gets a few attempts. The limit is per IP,
+// so a second pull on the same machine shares it; run pulls one at a time.
+const RETRY_WAIT_MS = [2000, 5000, 15000, 30000, 60000, 60000, 60000, 60000];
 
 function curl(extra, url) {
   let lastErr;
@@ -354,13 +355,16 @@ function main() {
     if (Number(geo.rcode) !== 1) throw new Error(`bsGetTaskGeo: ${geo.msg ?? JSON.stringify(geo)}`);
     const xctsk = buildXcTask(geo, page.goalIsLine, utcOffsetSec);
 
+    // Flymaster task names are whatever the scorer typed ("Task 1", "Monday",
+    // "21-09-2026 13:10:14"), so the task number comes from the name when it
+    // has one, else from --day dayN, else from the position on the front page.
     fallbackNum++;
-    const num = page.taskNum ?? fallbackNum;
+    const num = page.taskNum ?? args.day?.match(/^day(\d+)$/)?.[1] ?? fallbackNum;
     const day = args.day ?? `day${num}`;
     const compLabel = args['comp-label'] ?? page.compLabel;
     const dayLabel = `Task ${num}${page.date ? ` — ${shortDate(page.date)}` : ''}`;
     const totalKm = (geo.items ?? []).reduce((s, it) => s + (Number(it.d) || 0), 0);
-    const title = `${page.taskName || `Task ${num}`} — ${totalKm.toFixed(1)} km`;
+    const title = `${page.taskNum ? page.taskName : `Task ${num}`} — ${totalKm.toFixed(1)} km`;
 
     console.log(
       `\n• ${page.taskName} (task ${taskId}) ${page.date ?? ''} — ${compLabel}\n` +
