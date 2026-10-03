@@ -1,0 +1,31 @@
+{
+  "comp": "x-red-rocks-adventure-2026",
+  "compLabel": "2026 X Red Rocks Adventure",
+  "day": "day705",
+  "dayLabel": "Monroe, Utah — Oct 2",
+  "date": "2026-10-02",
+  "title": "2026-10-02 - Monroe, Utah - Hike and Fly XC Task",
+  "utcOffsetMinutes": -360,
+  "taskKind": "hike-and-fly",
+  "nameSource": "filename",
+  "taskFile": "task.xctsk",
+  "igcFiles": [
+    "Billy Barghahn.1206.100.igc",
+    "Brian Gass.1146.101.igc",
+    "Cal Neff.1148.102.igc",
+    "Carlos Roca.1100.106.igc",
+    "Christian Carron.1202.109.igc",
+    "Jaison Ashbaugh.1113.107.igc",
+    "Jason Elder.759.110.igc",
+    "Jeremy Bernstein.1014.115.igc",
+    "Julian Woods.1119.116.igc",
+    "Kyle krueger.1155.105.igc",
+    "Lincoln DiLorenzo.941.103.igc",
+    "Luke Rome.1200.118.igc",
+    "Marshall Mosher.774.117.igc",
+    "Matthew Matera.1109.108.igc",
+    "Peter Yeo.1201.114.igc",
+    "Robert Barlow.961.112.igc",
+    "Steffen Otto.1018.104.igc"
+  ]
+}

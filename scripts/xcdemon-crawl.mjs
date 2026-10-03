@@ -371,8 +371,11 @@ function main() {
     // fallback is driven by "did we get a turnpoint table", not by the HTTP
     // status: for X Red Rocks the PHP endpoint answers 200 with the body "task
     // result not found", which a status check would happily accept.
+    // X Red Rocks 2026 has neither: its results page links only
+    // results_task_new.php, which carries the same <h4> + turnpoint table.
     const sources = [
       `${HOST}/results_task.php?leagueappid=${t.league}&task_id=${t.task}`,
+      `${HOST}/results_task_new.php?leagueappid=${t.league}&task_id=${t.task}`,
       `${HOST}/tracklogs/${t.league}/${t.season}/task_result_${t.task}.html`,
     ];
     let html = null;
