@@ -1,0 +1,28 @@
+{
+  "comp": "x-red-rocks-2026",
+  "compLabel": "2026 X Red Rocks",
+  "day": "day702",
+  "dayLabel": "Monroe, Utah — Oct 3",
+  "date": "2026-10-03",
+  "title": "2026-10-03 - Monroe, Utah - Hike and Fly XC Task",
+  "utcOffsetMinutes": -360,
+  "taskKind": "hike-and-fly",
+  "nameSource": "filename",
+  "taskFile": "task.xctsk",
+  "igcFiles": [
+    "Albert Nazander.1134.16.igc",
+    "Alex berry.993.10.igc",
+    "Alyse Little.1004.4.igc",
+    "Ben Walker.755.12.igc",
+    "Brian Cooper.1153.5.igc",
+    "Christopher Puga.1157.17.igc",
+    "Isaac J lammers.599.11.igc",
+    "Joey villeneuve .1071.15.igc",
+    "John Kear.978.9.igc",
+    "Kevin Jones.1154.13.igc",
+    "Quinn Hepburn.1174.14.igc",
+    "Samuel Inouye.861.6.igc",
+    "Sarah Crosier.1073.1.igc",
+    "Sebrand Warren .670.7.igc"
+  ]
+}

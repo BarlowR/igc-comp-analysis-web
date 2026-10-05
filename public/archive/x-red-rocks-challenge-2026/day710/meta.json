@@ -1,0 +1,25 @@
+{
+  "comp": "x-red-rocks-challenge-2026",
+  "compLabel": "2026 X Red Rocks Challenge",
+  "day": "day710",
+  "dayLabel": "Monroe, Utah — Oct 3",
+  "date": "2026-10-03",
+  "title": "2026-10-03 - Monroe, Utah - Hike and Fly XC Task",
+  "utcOffsetMinutes": -360,
+  "taskKind": "hike-and-fly",
+  "nameSource": "filename",
+  "taskFile": "task.xctsk",
+  "igcFiles": [
+    "Aaron Sokolik.1210.203.igc",
+    "Bruno Perthus.1086.206.igc",
+    "Cleveland Eells.1211.213.igc",
+    "Eyal Posener.1165.211.igc",
+    "Jeff Wayland.1064.209.igc",
+    "Jon Low.1204.204.igc",
+    "Kyle Correia.1207.200.igc",
+    "Laura Anderson.1138.208.igc",
+    "Sherri Riggs.1209.201.igc",
+    "TJ Potts.1203.212.igc",
+    "stuart gleason.1117.210.igc"
+  ]
+}
