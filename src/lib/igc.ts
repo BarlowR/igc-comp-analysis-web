@@ -22,7 +22,9 @@ import {
   not,
   nanmean,
 } from './math';
-import { startTurnpointIndex, type XcTask } from './xctsk';
+import { startTurnpointIndex, DEFAULT_TASK_KIND, type XcTask, type TaskKind } from './xctsk';
+import { detectAirSegments, type AirSegment } from './hike-fly';
+import { buildGeom, optimalRemaining, toPlanar } from './timetogo';
 
 const MS_TO_KMH = 3.6;
 const FORWARD_TRAVEL_THRESHOLD = 200; // FORWARD_TRAVEL_THRESHOLD_20S in Python
@@ -59,6 +61,8 @@ interface Columns {
   stoppedAndClimbing: boolean[];
   climbingOnGlide: boolean[];
   sinkingOnGlide: boolean[];
+  /** In a paraglider flight, as opposed to on foot. Hike and fly only; empty otherwise. */
+  flying: boolean[];
   // per-second time
   timeClimbingS: number[];
   timeGlidingS: number[];
@@ -116,10 +120,18 @@ export class IgcFlight {
   stats: Stats = {};
   /** Epoch ms of the SSS start gate (set by buildCompMetrics). */
   startGateMs: number | null = null;
-  /** Epoch ms of the detected landing (set by buildCompMetrics), if any. */
+  /** Epoch ms where the scored track was cut short (set by buildCompMetrics), if
+   * it was: the detected landing, or on a hike and fly the start of a vehicle ride. */
   landingMs: number | null = null;
+  /** Flights and vehicle rides over the whole track, as indexes into `df`
+   * (set by buildCompMetrics on a hike and fly; empty otherwise). */
+  airSegments: AirSegment[] = [];
   /** Index (in the comp window) of the fix where the pilot exited the SSS. */
   private sssExitIdx: number | null = null;
+  /** Index into the task's turnpoints of the next one still to tag at the end
+   * of the scored window (set by trackTaskProgress). Past the finish when the
+   * task was completed. */
+  private nextTurnpointIdx = 0;
 
   constructor(text: string, fallbackName = 'Unknown Pilot') {
     this.pilotName = fallbackName;
@@ -331,6 +343,7 @@ export class IgcFlight {
       stoppedAndClimbing,
       climbingOnGlide,
       sinkingOnGlide,
+      flying: [], // filled by markFlights
       timeClimbingS,
       timeGlidingS,
       // cumulative columns filled by calcCumulative
@@ -370,9 +383,11 @@ export class IgcFlight {
   // ---- competition window ------------------------------------------------
 
   /** Port of build_computed_comp_metrics + _track_task_progress. */
-  buildCompMetrics(task: XcTask): void {
+  buildCompMetrics(task: XcTask, kind: TaskKind = DEFAULT_TASK_KIND): void {
     const startMs = this.compStartMs(task);
     this.startGateMs = startMs;
+    const hikeAndFly = kind === 'hike-and-fly';
+    if (hikeAndFly) this.markFlights();
 
     // Python copies the full-flight dataframe (with all per-fix columns already
     // computed) and *filters* by time — it does NOT recompute the per-fix
@@ -386,7 +401,12 @@ export class IgcFlight {
     // Cut the window at landing: comp tracklogs (LiveTrack especially) keep
     // logging through the retrieve drive, and a drive along the highway tags
     // cylinders — up to and including the goal LZ — that the flight never did.
-    const landedIdx = this.landingIndex(comp);
+    //
+    // A hike and fly has the same drive but not the same landing: a pilot who
+    // lands and sits five minutes packing a wing is mid-task, and the stationary
+    // test would end their day at the first rest. There the window is cut where
+    // the pilot gets into a vehicle instead.
+    const landedIdx = hikeAndFly ? this.rideIndex(comp, task, startIdx) : this.landingIndex(comp);
     if (landedIdx !== -1) {
       comp = sliceColumns(comp, 0, landedIdx + 1);
       this.landingMs = comp.timeMs[comp.timeMs.length - 1] ?? null;
@@ -403,6 +423,8 @@ export class IgcFlight {
 
     this.compDf = cropped;
     this.calculateStats(cropped);
+    // Course left to fly from where the scored track ends; null once finished.
+    this.stats.comp_remaining_distance = this.stats.completed ? null : this.remainingDistance(cropped, task);
 
     // Start-gate crossing: altitude (MSL) and seconds after the gate opened at
     // the fix where the pilot exited the SSS cylinder.
@@ -498,6 +520,64 @@ export class IgcFlight {
     return -1;
   }
 
+  /**
+   * Run the hike-fly detector over the whole track and mark the fixes that are
+   * in a paraglider flight. Vehicle rides are kept in `airSegments` but left
+   * unmarked: they are neither hiking nor flying, and rideIndex crops the one
+   * that matters.
+   */
+  private markFlights(): void {
+    this.airSegments = detectAirSegments(this.df);
+    const flying = new Array<boolean>(this.df.timeMs.length).fill(false);
+    for (const seg of this.airSegments) {
+      if (seg.kind !== 'flight') continue;
+      for (let i = seg.launch + 1; i < seg.landing; i++) flying[i] = true;
+    }
+    this.df.flying = flying;
+  }
+
+  /**
+   * Hike-and-fly counterpart of landingIndex: the index (in the comp window)
+   * where the pilot's first vehicle ride after the start begins, or -1 if there
+   * is none. The race is over once the pilot is in a car, so everything from
+   * there on — the retrieve, and any cylinder the road passes through — is cut.
+   *
+   * A ride before the start is not a reason to cut: the X Red Rocks field is
+   * shuttled to the start cylinder with trackers running. It already sits
+   * outside the hiking/flying split, which is measured from the SSS exit. That
+   * is why this needs the task: the SSS exit is only known by walking it.
+   */
+  private rideIndex(c: Columns, task: XcTask, windowStart: number): number {
+    this.trackTaskProgress(c, task);
+    const exitIdx = this.sssExitIdx;
+    if (exitIdx === null) return -1;
+    for (const seg of this.airSegments) {
+      const launch = seg.launch - windowStart;
+      if (seg.kind === 'vehicle' && launch >= exitIdx && launch < c.timeMs.length) return launch;
+    }
+    return -1;
+  }
+
+  /**
+   * Metres of course still to fly at the last fix of the window: the shortest
+   * route from there through every cylinder not yet tagged to the finish, as
+   * the Time Lost model prices it (timetogo.ts `optimalRemaining`). Null when
+   * there is no fix to measure from.
+   */
+  private remainingDistance(c: Columns, task: XcTask): number | null {
+    const n = c.timeMs.length;
+    if (n === 0) return null;
+    // The geom is the route from the SSS to the finish, so its index k is the
+    // task index less the SSS's. A pilot still inside the SSS has the whole
+    // course ahead, counted from the first turnpoint after it.
+    const geom = buildGeom(task.turnpoints);
+    if (geom.cx.length < 2) return null;
+    const k = Math.max(1, this.nextTurnpointIdx - startTurnpointIndex(task.turnpoints));
+    if (k >= geom.cx.length) return 0;
+    const [x, y] = toPlanar(c.lat[n - 1], c.lon[n - 1], geom.lat0, geom.lon0);
+    return optimalRemaining(x, y, geom, k, null).total;
+  }
+
   /** Walk the turnpoint cylinders to label each fix with the next waypoint. */
   private trackTaskProgress(c: Columns, task: XcTask): void {
     const tps = task.turnpoints;
@@ -564,6 +644,7 @@ export class IgcFlight {
       // missing name — a nameless turnpoint is not a finished task.
       c.nextWaypointName[i] = nextIdx < tps.length ? tps[nextIdx].name : 'COMPLETED';
     }
+    this.nextTurnpointIdx = nextIdx;
   }
 
   // ---- stats -------------------------------------------------------------
@@ -668,6 +749,38 @@ export class IgcFlight {
     const thermalV5 = v5.filter((_, i) => c.stoppedAndClimbing[i]);
     s[`${p}average_climb_rate`] = thermalV5.length > 0 ? nanmean(thermalV5) : 0;
 
+    // Hiking vs flying, on the same window and the same real second-deltas as
+    // the four air states above, so the same identity holds with two terms:
+    //   completion_time = seconds_after_gate + secs_hiking + secs_flying
+    // and flying splits again, by the same stopped/on-glide test as an XC task:
+    //   secs_flying = secs_thermalling + secs_gliding
+    // Distance and height use the per-fix quantities behind `total_distance`
+    // and `total_meters_climbed`, so the two halves are comparable with those.
+    if (c.flying.length > 0) {
+      const onFoot = not(c.flying);
+      const dist = scale(c.distance[20], 1 / 20);
+      const gain = clip(scale(c.altDelta[5], 1 / 5), 0, undefined);
+      const secsHiking = stateSum(secs, onFoot);
+      const distanceHiked = stateSum(dist, onFoot);
+      s[`${p}secs_hiking`] = secsHiking;
+      s[`${p}secs_flying`] = stateSum(secs, c.flying);
+      s[`${p}secs_thermalling`] = stateSum(secs, and(c.flying, c.stoppedToClimb));
+      s[`${p}secs_gliding`] = stateSum(secs, and(c.flying, c.onGlide));
+      s[`${p}distance_hiked`] = distanceHiked;
+      // Over all the time on foot, stops included: the table shows the distance
+      // and the time beside it, and this is the one divided by the other. Null
+      // for a pilot who was never on foot (flew out of the start and into goal).
+      s[`${p}hiking_speed_kmh`] = secsHiking > 0 ? (distanceHiked / secsHiking) * MS_TO_KMH : null;
+      s[`${p}distance_flown`] = stateSum(dist, c.flying);
+      s[`${p}meters_climbed_hiking`] = stateSum(gain, onFoot);
+      s[`${p}meters_climbed_flying`] = stateSum(gain, c.flying);
+      let flights = 0;
+      // A flight already under way at the SSS exit counts: launching inside the
+      // start cylinder is a start like any other.
+      for (let i = from; i < n; i++) if (c.flying[i] && (i === from || !c.flying[i - 1])) flights++;
+      s[`${p}flights`] = flights;
+    }
+
     for (let cr = 1; cr <= 5; cr++) {
       const sec = count(v5, (v) => v >= cr - 0.5 && v < cr + 0.5);
       const alt = sumWhere(v5, (v) => v >= cr - 0.5 && v < cr + 0.5);
@@ -729,6 +842,7 @@ function sliceColumns(c: Columns, start: number, end?: number): Columns {
     stoppedAndClimbing: b(c.stoppedAndClimbing),
     climbingOnGlide: b(c.climbingOnGlide),
     sinkingOnGlide: b(c.sinkingOnGlide),
+    flying: b(c.flying),
     timeClimbingS: n(c.timeClimbingS),
     timeGlidingS: n(c.timeGlidingS),
     totalMetersClimbed: n(c.totalMetersClimbed),

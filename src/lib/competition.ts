@@ -60,8 +60,16 @@ import { insideCylinder, optimizeTaskRoute } from './math';
  *    min 5 m) with a WGS84 check near the boundary, and the comp window now
  *    ends at the detected landing so retrieve drives no longer count as task
  *    progress. Completion flags and comp_* stats can differ from version 2.
+ *
+ * 4: hike and fly only. The landing cut from 3 ended those tracks at the
+ *    pilot's first long rest, which left most finishers marked incomplete. The
+ *    window now ends where the pilot's first vehicle ride after the start
+ *    begins (see hike-fly.ts), so completion flags and comp_* stats on a
+ *    hike-and-fly day differ from version 3. Its table also has new columns,
+ *    the hiking/flying set. Every task kind's table gained Remaining Distance.
+ *    Free days are unchanged.
  */
-export const ANALYSIS_VERSION = 3;
+export const ANALYSIS_VERSION = 4;
 
 export type GradientDir = 'least_positive' | 'most_positive' | 'most_negative' | null;
 
@@ -72,10 +80,16 @@ export interface MetricColumn {
   label: string;
 }
 
-/** Mirror of COMP_SUBSET: [stats key] -> [gradient direction, display label]. */
+/**
+ * Mirror of COMP_SUBSET: [stats key] -> [gradient direction, display label].
+ * Remaining distance is the one column only non-finishers have a value for (a
+ * finisher's is null); the table leaves a column out of a group nobody in it
+ * has a value for, so it shows on the Did Not Complete table alone.
+ */
 export const COMP_SUBSET: MetricColumn[] = [
   { key: 'name', dir: null, label: 'Pilot Name' },
   { key: 'completion_time', dir: 'least_positive', label: 'Completion Time (s)' },
+  { key: 'comp_remaining_distance', dir: 'least_positive', label: 'Remaining Distance (m)' },
   { key: 'comp_start_msl', dir: 'most_positive', label: 'Start Altitude MSL (m)' },
   { key: 'comp_finish_msl', dir: 'most_positive', label: 'Finish Altitude MSL (m)' },
   { key: 'comp_seconds_after_gate', dir: 'least_positive', label: 'Start After Gate (s)' },
@@ -93,23 +107,32 @@ export const COMP_SUBSET: MetricColumn[] = [
 ];
 
 /**
- * Hike and fly: deliberately the smallest set that still describes the day.
+ * Hike and fly: where the time went, on foot and in the air.
  *
- * The columns dropped from COMP_SUBSET aren't unavailable — every `comp_*` stat
- * is still computed the same way — they're withheld because a hiked leg reads as
- * flying with none of the flying: the pilot is on the ground gaining height at
- * walking pace, which lands in the stopped/climbing states and drags the
- * thermal, glide and start-height metrics away from anything comparable between
- * pilots. What's left holds up either way: how long the task took, how far and
- * how high they flew, and the climbing they did (rate excluded — see above).
- * Add columns here as the metrics are made hike-aware, one at a time.
+ * None of the COMP_SUBSET columns past completion time carry over. Those are
+ * computed over the whole window with no notion of the ground, so a hiked leg
+ * reads as flying with none of the flying: the pilot gains height at walking
+ * pace, which lands in the stopped/climbing states and drags the thermal, glide
+ * and height metrics away from anything comparable between pilots.
+ *
+ * These are computed from the hiking/flying split instead (IgcFlight
+ * .calculateStats, the `flying` mask), all from the pilot's SSS exit to the
+ * finish, so the shuttle to the start is in none of them. The times add up:
+ * hiking + flying is the time on task, and thermalling + gliding is flying.
+ * Shading follows the XC table — on a race, less time in any phase is faster —
+ * and height gained stays unshaded as it does there.
  */
 export const HIKE_AND_FLY_SUBSET: MetricColumn[] = [
   { key: 'name', dir: null, label: 'Pilot Name' },
   { key: 'completion_time', dir: 'least_positive', label: 'Completion Time (s)' },
-  { key: 'comp_total_distance', dir: 'least_positive', label: 'Total Distance Flown (m)' },
-  { key: 'comp_total_meters_climbed', dir: null, label: 'Total Meters Climbed (m)' },
-  { key: 'comp_average_altitude', dir: 'most_positive', label: 'Average Altitude (m)' },
+  { key: 'comp_remaining_distance', dir: 'least_positive', label: 'Remaining Distance (m)' },
+  { key: 'comp_secs_hiking', dir: 'least_positive', label: 'Hiking Time (s)' },
+  { key: 'comp_distance_hiked', dir: 'least_positive', label: 'Hiking Distance (m)' },
+  { key: 'comp_meters_climbed_hiking', dir: null, label: 'Hiking Altitude Gained (m)' },
+  { key: 'comp_hiking_speed_kmh', dir: 'most_positive', label: 'Hiking Speed (km/h)' },
+  { key: 'comp_secs_flying', dir: 'least_positive', label: 'Flying Time (s)' },
+  { key: 'comp_secs_thermalling', dir: 'least_positive', label: 'Thermalling Time (s)' },
+  { key: 'comp_secs_gliding', dir: 'least_positive', label: 'Gliding Time (s)' },
 ];
 
 /**
@@ -443,7 +466,7 @@ export class Competition {
    */
   addPilot(igcText: string, fallbackName: string): PilotRow {
     const flight = new IgcFlight(igcText, fallbackName);
-    if (this.task) flight.buildCompMetrics(this.task);
+    if (this.task) flight.buildCompMetrics(this.task, this.kind);
     else flight.buildFreeMetrics();
     // On shared-tracker comps the header carries the tracker, not the pilot —
     // the caller's filename-derived name is the true one (see NameSource).

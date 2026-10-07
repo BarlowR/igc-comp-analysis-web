@@ -55,17 +55,22 @@ test('gradientColor: least_positive greens the min, most_positive greens the max
 });
 
 // ---- metric sets ----------------------------------------------------------
-test('metricsFor: xc is the full set, hike-and-fly a strict subset of it', () => {
+test('metricsFor: xc is the full set, hike-and-fly its own hiking/flying set', () => {
   assert.equal(metricsFor('xc'), COMP_SUBSET);
   assert.equal(metricsFor('hike-and-fly'), HIKE_AND_FLY_SUBSET);
-  assert.ok(HIKE_AND_FLY_SUBSET.length < COMP_SUBSET.length, 'hike-and-fly should be the smaller set');
 
-  // Every hike-and-fly column must be a column the XC set already defines, key,
-  // gradient and label alike. A key that no longer exists in Stats renders as a
-  // full column of '—', which looks like missing data rather than a typo.
+  // The columns both tables have must read the same in both. The rest are
+  // hike-and-fly's own, and none of them is an air-only XC column: those count
+  // a hiked leg as flying. (That each key is a real stat is checked against a
+  // real day in hike-fly.test.ts — a typo renders as a full column of '—'.)
   const xcByKey = new Map(COMP_SUBSET.map((c) => [c.key, c]));
-  for (const col of HIKE_AND_FLY_SUBSET) {
-    assert.deepEqual(xcByKey.get(col.key), col, `${col.key} diverges from the XC column`);
+  const shared = ['name', 'completion_time', 'comp_remaining_distance'];
+  for (const key of shared) {
+    const col = HIKE_AND_FLY_SUBSET.find((c) => c.key === key);
+    assert.deepEqual(col, xcByKey.get(key), `${key} diverges from the XC column`);
+  }
+  for (const col of HIKE_AND_FLY_SUBSET.filter((c) => !shared.includes(c.key))) {
+    assert.ok(!xcByKey.has(col.key), `${col.key} is an XC column, computed with no notion of the ground`);
   }
   assert.equal(HIKE_AND_FLY_SUBSET[0].key, 'name', 'the pilot name must lead the table');
 });
@@ -253,7 +258,7 @@ test('Competition: one row per pilot when a day holds two tracklogs for them', {
 // Same tracklogs, both kinds, so every difference below is the kind's doing and
 // not the day's. A real hike-and-fly day isn't needed to pin the wiring down:
 // which columns come out, and that the par/Time Lost model doesn't run.
-test('Competition: hike-and-fly ships the basic metric set and no Time Lost data', { timeout: 120_000 }, (t) => {
+test('Competition: hike-and-fly ships its own metric set and no Time Lost data', { timeout: 120_000 }, (t) => {
   // Two of the day's finishers, so the XC half of the comparison has the ESS
   // crossings the par model needs — otherwise it would omit timeToGo for want of
   // data and prove nothing about the kind.
@@ -289,20 +294,19 @@ test('Competition: hike-and-fly ships the basic metric set and no Time Lost data
   assert.equal(xc.map.taskKind, 'xc');
   assert.ok(xc.map.timeToGo, 'xc should still build the par constants');
 
-  // Only the presentation changes: the underlying stats are computed identically,
-  // so a column both kinds show has to hold the same number.
+  // The one metric both tables show has to hold the same number. These two
+  // finish in the air, so neither kind's cut (the landing for XC, a vehicle ride
+  // for hike and fly) falls before the finish to move it.
   const colOf = (cols: typeof COMP_SUBSET, key: string): number => {
     const i = cols.findIndex((c) => c.key === key);
     assert.ok(i >= 0, `no ${key} column`);
     return i;
   };
-  const hnfDist = colOf(HIKE_AND_FLY_SUBSET, 'comp_total_distance');
-  const xcDist = colOf(COMP_SUBSET, 'comp_total_distance');
-  assert.ok(hnf.table.completed.length + hnf.table.incomplete.length > 0, 'expected rows to compare');
-  for (const group of ['completed', 'incomplete'] as const) {
-    for (const row of hnf.table[group]) {
-      const same = xc.table[group].find((r) => r[0].text === row[0].text);
-      assert.equal(row[hnfDist].text, same?.[xcDist].text, `${row[0].text}: distance differs between kinds`);
-    }
+  const hnfTime = colOf(HIKE_AND_FLY_SUBSET, 'completion_time');
+  const xcTime = colOf(COMP_SUBSET, 'completion_time');
+  assert.ok(hnf.table.completed.length > 0, 'expected finishers to compare');
+  for (const row of hnf.table.completed) {
+    const same = xc.table.completed.find((r) => r[0].text === row[0].text);
+    assert.equal(row[hnfTime].text, same?.[xcTime].text, `${row[0].text}: completion time differs between kinds`);
   }
 });

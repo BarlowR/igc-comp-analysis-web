@@ -297,10 +297,21 @@ export function tableEl(
   selectAllTh.appendChild(selectAll);
   htr.appendChild(selectAllTh);
 
+  // A column nobody in this group has a value for is left out: completion
+  // time and finish height on the Did Not Complete table, remaining distance
+  // on the Completed one. Indexes stay those of `table.headers` throughout —
+  // only the drawing skips — so sorting and shading need no remapping.
+  const shown = table.headers.map((_, ci) => ci === 0 || rows.some((r) => Number.isFinite(r[ci].value)));
+  const span = shown.filter(Boolean).length + 1; // plus the checkbox column
+
   const ths: HTMLTableCellElement[] = [];
   table.headers.forEach((h, ci) => {
     const th = document.createElement('th');
     th.textContent = h;
+    if (!shown[ci]) {
+      ths.push(th); // keeps ths[ci] aligned; never attached
+      return;
+    }
     th.classList.add('sortable');
     th.addEventListener('click', () => {
       if (sortCol === ci) {
@@ -382,6 +393,7 @@ export function tableEl(
       tr.appendChild(checkTd);
 
       row.forEach((cell, ci) => {
+        if (!shown[ci]) return;
         const td = document.createElement('td');
         if (ci === 0) {
           td.className = 'name';
@@ -419,7 +431,7 @@ export function tableEl(
       const toggleTr = document.createElement('tr');
       toggleTr.className = 'deselected-toggle';
       const td = document.createElement('td');
-      td.colSpan = table.headers.length + 1;
+      td.colSpan = span;
       const n = deselectedSorted.length;
       td.textContent = `${showDeselected ? '▾' : '▸'}  ${n} deselected pilot${n === 1 ? '' : 's'}`;
       td.addEventListener('click', () => {
@@ -454,7 +466,7 @@ export function tableEl(
 
     let row: HTMLElement | null = null;
     if (loss && timeLoss.winner) {
-      row = timeLossRow(loss, timeLoss.winner, table.headers.length + 1, timeLoss.contextScale, timeLoss.topCount);
+      row = timeLossRow(loss, timeLoss.winner, span, timeLoss.contextScale, timeLoss.topCount);
     } else if (extra) {
       // No time-loss breakdown for this pilot (they don't appear in the
       // decomposition), but the hook still has something to show — a bare panel
@@ -462,7 +474,7 @@ export function tableEl(
       row = document.createElement('tr');
       row.className = 'time-loss';
       const td = document.createElement('td');
-      td.colSpan = table.headers.length + 1;
+      td.colSpan = span;
       const panel = document.createElement('div');
       panel.className = 'tl-panel';
       td.appendChild(panel);

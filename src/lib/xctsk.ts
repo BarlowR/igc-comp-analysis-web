@@ -29,7 +29,7 @@ export interface XcTask {
  * scripts/archive.mjs `--kind`), or the picker on the upload page.
  *
  * It selects which metrics are computed and shown: the full set for an XC comp,
- * a small starter set for hike and fly, whose turnpoint-to-turnpoint legs are
+ * a hiking/flying set for hike and fly, whose turnpoint-to-turnpoint legs are
  * part hiked and part flown, so the air-only model behind the rest (par climb,
  * par glide, Time Lost) doesn't describe the day. See competition.ts
  * `metricsFor` and `buildMapData`.

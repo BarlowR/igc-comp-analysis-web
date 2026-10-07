@@ -23,6 +23,7 @@
     "astro": "^5.0.0",
     "cesium": "^1.143.0",
     "chart.js": "^4.4.0",
+    "hike-fly-detect": "github:BarlowR/hike-fly-detect#v0.1.0",
     "leaflet": "^1.9.4",
     "three": "^0.170.0"
   },
