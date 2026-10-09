@@ -9,7 +9,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { detectAirSegments } from '../src/lib/hike-fly.ts';
+import { detectAirSegments, hikingHeightGained } from '../src/lib/hike-fly.ts';
 import { IgcFlight } from '../src/lib/igc.ts';
 import { parseXcTask, type XcTask } from '../src/lib/xctsk.ts';
 import { Competition, nameFromFile, HIKE_AND_FLY_SUBSET } from '../src/lib/competition.ts';
@@ -90,6 +90,34 @@ test('detectAirSegments: a glide is a flight, a drive is a vehicle, a hike is ne
 
 test('detectAirSegments: a track too short for the detector has no segments', () => {
   assert.deepEqual(detectAirSegments({ timeMs: [0, 1000], lat: [47, 47], lon: [8, 8], gnssAlt: [1000, 1000] }), []);
+});
+
+// ---- height gained on foot --------------------------------------------------
+test('hikingHeightGained: GPS jitter on foot is not a climb, and a flight is not a hike', () => {
+  // Hike 360 m up at 0.3 m/s, stand on launch for half an hour, glide 360 m
+  // down, walk on flat ground for ten minutes. The true gain on foot is 360 m.
+  const s = new Script().leg(1200, HIKE, 0.3).leg(1800, 0);
+  const launch = s.now;
+  s.leg(300, GLIDE, -1.2);
+  const landing = s.now;
+  s.leg(600, HIKE, 0);
+  const { timeMs, gnssAlt } = s.columns();
+  // A tracker's GPS height wanders by a few metres from second to second.
+  let seed = 7;
+  const jittered = gnssAlt.map((a) => {
+    seed = (seed * 1103515245 + 12345) % 2 ** 31;
+    return a + (seed / 2 ** 31 - 0.5) * 8;
+  });
+  const onFoot = timeMs.map((_, i) => i <= launch || i >= landing);
+
+  const gained = hikingHeightGained(timeMs, jittered, onFoot, 0);
+  assert.ok(Math.abs(gained - 360) <= 20, `gained ${gained} m on foot, scripted 360`);
+  // The old sum of positive 5 s deltas counts the jitter: well over double.
+  let naive = 0;
+  for (let i = 5; i < timeMs.length; i++) if (onFoot[i] && jittered[i] > jittered[i - 5]) naive += (jittered[i] - jittered[i - 5]) / 5;
+  assert.ok(naive > 800, `the naive sum gives ${naive} m`);
+  // Measured from the landing, the flat walk gains nothing.
+  assert.ok(hikingHeightGained(timeMs, jittered, onFoot, landing) <= 10);
 });
 
 // ---- the hike-and-fly window ----------------------------------------------

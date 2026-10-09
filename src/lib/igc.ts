@@ -23,7 +23,7 @@ import {
   nanmean,
 } from './math';
 import { startTurnpointIndex, DEFAULT_TASK_KIND, type XcTask, type TaskKind } from './xctsk';
-import { detectAirSegments, type AirSegment } from './hike-fly';
+import { detectAirSegments, hikingHeightGained, type AirSegment } from './hike-fly';
 import { buildGeom, optimalRemaining, toPlanar } from './timetogo';
 
 const MS_TO_KMH = 3.6;
@@ -754,8 +754,10 @@ export class IgcFlight {
     //   completion_time = seconds_after_gate + secs_hiking + secs_flying
     // and flying splits again, by the same stopped/on-glide test as an XC task:
     //   secs_flying = secs_thermalling + secs_gliding
-    // Distance and height use the per-fix quantities behind `total_distance`
-    // and `total_meters_climbed`, so the two halves are comparable with those.
+    // Distance and the flying height use the per-fix quantities behind
+    // `total_distance` and `total_meters_climbed`, so they are comparable with
+    // those. The hiking height is not: that sum is GPS jitter on foot, see
+    // hikingHeightGained.
     if (c.flying.length > 0) {
       const onFoot = not(c.flying);
       const dist = scale(c.distance[20], 1 / 20);
@@ -772,7 +774,7 @@ export class IgcFlight {
       // for a pilot who was never on foot (flew out of the start and into goal).
       s[`${p}hiking_speed_kmh`] = secsHiking > 0 ? (distanceHiked / secsHiking) * MS_TO_KMH : null;
       s[`${p}distance_flown`] = stateSum(dist, c.flying);
-      s[`${p}meters_climbed_hiking`] = stateSum(gain, onFoot);
+      s[`${p}meters_climbed_hiking`] = hikingHeightGained(c.timeMs, c.gnssAlt, onFoot, from);
       s[`${p}meters_climbed_flying`] = stateSum(gain, c.flying);
       let flights = 0;
       // A flight already under way at the SSS exit counts: launching inside the

@@ -109,3 +109,74 @@ export function detectAirSegments(track: {
   }
   return out;
 }
+
+/** Seconds of centred moving average applied to the height on foot. */
+const HIKING_SMOOTH_S = 120;
+/** A rise on foot is counted once it is this tall (m) before the next fall. */
+const HIKING_CLIMB_M = 10;
+
+/**
+ * Height gained on foot from `from` to the end of the track.
+ *
+ * The flying gain is the sum of positive 5-second deltas, like the XC
+ * "Total Meters Climbed", and the GPS height is steady enough for that in the
+ * air, where a climb is 1–5 m/s. On foot a climb is 0–0.3 m/s, under the GPS
+ * jitter, and that sum counts the positive half of the jitter for every second
+ * on the ground: on X Red Rocks days it roughly doubles the true gain, and a
+ * noisy tracker or an hour sat still can triple it. So each contiguous run of
+ * fixes on foot is smoothed over two minutes, and a rise is banked only once
+ * it is 10 m tall. Against the trackers' pressure altitude this lands within
+ * ±10 % for most of the field. A run never spans a flight, so a launch or a
+ * landing is not a hiking climb.
+ */
+export function hikingHeightGained(
+  timeMs: number[],
+  alt: number[],
+  onFoot: boolean[],
+  from: number,
+): number {
+  let gained = 0;
+  let i = Math.max(from, 0);
+  while (i < timeMs.length) {
+    if (!onFoot[i]) {
+      i++;
+      continue;
+    }
+    let end = i;
+    while (end < timeMs.length && onFoot[end]) end++;
+    gained += bankedRise(smooth(timeMs, alt, i, end, HIKING_SMOOTH_S * 1000), HIKING_CLIMB_M);
+    i = end;
+  }
+  return gained;
+}
+
+/** Centred moving average of alt[start, end) over a window of `windowMs`. */
+function smooth(timeMs: number[], alt: number[], start: number, end: number, windowMs: number): number[] {
+  const out: number[] = [];
+  let lo = start;
+  let hi = start;
+  let sum = 0;
+  for (let i = start; i < end; i++) {
+    while (hi < end && timeMs[hi] <= timeMs[i] + windowMs / 2) sum += alt[hi++];
+    while (timeMs[lo] < timeMs[i] - windowMs / 2) sum -= alt[lo++];
+    out.push(sum / (hi - lo));
+  }
+  return out;
+}
+
+/** Sum of the rises in `alt` that reach `minRise` before the height falls back by as much. */
+function bankedRise(alt: number[], minRise: number): number {
+  if (alt.length === 0) return 0;
+  let gained = 0;
+  let base = alt[0];
+  let peak = alt[0];
+  for (const a of alt) {
+    if (a > peak) peak = a;
+    else if (a < peak - minRise) {
+      gained += peak - base;
+      base = peak = a;
+    }
+    if (a < base) base = peak = a;
+  }
+  return gained + (peak - base);
+}
